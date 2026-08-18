@@ -1,0 +1,183 @@
+; Pause consists of 100 bits.
+; One bit is CPU_Freq / Usart_Freq cycles
+.equ LinkPauseCycles = 100 * FREQ_MHZ * 1000000 / RS485_BaudRate
+.equ LinkPauseLoops = LinkPauseCycles / 6 ; length of one loop
+
+
+; Wire byte encoding:
+;  0xFH0L - first byte (HighLow nibbles)
+;  0x0H0L - other bytes
+;
+
+;----------------------------------------------------------------------------------
+;----------------------------------------------------------------------------------
+;--------------------------------------------------------------------
+L2_SendNoCRC:
+    cbi UCSRB, RXEN
+    sbi Port_RS485DIR, BIT_RS485DIR     ; RS485 - Out
+    sbi UCSRA, TXC
+    out UDR, tmp
+L2_SendWait:
+    sbis UCSRA, TXC
+    rjmp L2_SendWait
+    cbi Port_RS485DIR, BIT_RS485DIR     ; RS485 - In
+    sbi UCSRB, RXEN
+    ret
+;--------------------------------------------------------------------
+L2_SendFirstByte:
+    ser xL
+    ser xH
+    rcall L2_UpdateCRC
+    push tmp
+    swap tmp
+    andi tmp, 0x0F
+    ori tmp, 0xF0
+    rcall L2_SendNoCRC
+    pop tmp
+    andi tmp, 0x0F
+    rjmp L2_SendNoCRC
+;--------------------------------------------------------------------
+L2_SendNotFirstByte:
+    rcall L2_UpdateCRC
+L2_SendNotFirstByteNoCRC:
+    push tmp
+    swap tmp
+    andi tmp, 0x0F
+    rcall L2_SendNoCRC
+    pop tmp
+    andi tmp, 0x0F
+    rjmp L2_SendNoCRC
+;--------------------------------------------------------------------
+L2_SendCRC:
+; CRC bytes are swapped
+    mov tmp, xL
+    rcall L2_SendNotFirstByteNoCRC
+    mov tmp, xH
+    rjmp L2_SendNotFirstByteNoCRC
+;--------------------------------------------------------------------
+
+L2_RecvByteComplex:
+; in: tmp1 = F0 - expect first, 00 - expect not first
+; ret: Z = ok, tmp - data
+; NZ - timeout / decode error
+    push tmp1
+    rcall L2_RecvNoCrc
+    pop tmp1
+    brne L2_RecvByteComplex_Exit
+    push tmp
+    andi tmp, 0xF0
+    cp tmp, tmp1
+    pop tmp1
+    brne L2_RecvByteComplex_Exit
+
+    andi tmp1, 0x0F
+    swap tmp1
+
+    rcall L2_RecvNoCrc
+    brne L2_RecvByteComplex_Exit
+    push tmp
+    andi tmp, 0xF0
+    pop tmp
+    brne L2_RecvByteComplex_Exit
+    andi tmp, 0x0F
+    or tmp, tmp1
+    sez
+L2_RecvByteComplex_Exit:
+    ret
+;--------------------------------------------------------------------
+; ret: Z = ok, tmp - data
+; NZ - timeout / decode error
+L2_RecvFirstByte:
+    ser xL
+    ser xH
+    push tmp1
+    ldi tmp1, 0xF0
+    rcall L2_RecvByteComplex
+    pop tmp1
+    brne L2_RecvFirstByte_Exit
+    rcall L2_UpdateCRC
+    sez
+L2_RecvFirstByte_Exit:
+    ret
+;--------------------------------------------------------------------
+; ret: Z = ok, tmp - data
+; NZ - timeout / decode error
+L2_RecvNotFirstByte:
+    push tmp1
+    ldi tmp1, 0x00
+    rcall L2_RecvByteComplex
+    pop tmp1
+    brne L2_RecvNotFirstByte_Exit
+    rcall L2_UpdateCRC
+    sez
+L2_RecvNotFirstByte_Exit:
+    ret
+;--------------------------------------------------------------------
+L2_RecvNoCrc:
+; ret: Z = ok, tmp - data
+; NZ - timeout
+    push zL
+    push zH
+
+    LDIWZ LinkPauseLoops
+L2_Recv_Wait:
+    sbic UCSRA, RXC   ; 1 + 1
+    rjmp L2_Recv_Recv ; 0
+    sbiw zL, 1        ; 2
+    brne L2_Recv_Wait ; 2
+    pop zH
+    pop zL
+    clz
+    ret
+
+L2_Recv_Recv:
+    in tmp, UDR
+    pop zH
+    pop zL
+    sez
+    ret
+;--------------------------------------------------------------------
+L2_UpdateCRC:
+    push tmp
+    push tmp1
+    push tmp2
+    ldi tmp1, 0xA0
+    ldi tmp2, 0x01
+    eor xL, tmp
+    ldi tmp, 8
+L2_UpdateCRC_BitLoop:
+    clc
+    ror xH
+    ror xL
+    brcc L2_UpdateCRC_Handle1
+    eor xH, tmp1
+    eor xL, tmp2
+L2_UpdateCRC_Handle1:
+    dec tmp
+    brne L2_UpdateCRC_BitLoop
+    pop tmp2
+    pop tmp1
+    pop tmp
+    ret
+;--------------------------------------------------------------------
+L2_RecvCRC:
+    clr tmp1
+    rcall L2_RecvByteComplex
+    brne L2_RecvCRC_Exit
+
+    push tmp
+    clr tmp1
+    rcall L2_RecvByteComplex
+    pop tmp1
+    brne L2_RecvCRC_Exit
+
+; Note that X holds swapped CRC
+    cp tmp, xH
+    brne L2_RecvCRC_Exit
+    cp tmp1, xL
+L2_RecvCRC_Exit:
+    ret
+;----------------------------------------------------------------------------------
+
+
+

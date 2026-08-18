@@ -1,0 +1,7 @@
+./gavrasm main.asm -e -a
+
+
+avrdude -c usbasp -p t4313 -U flash:w:main.hex:i -B 30
+
+
+

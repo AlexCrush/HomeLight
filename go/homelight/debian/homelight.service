@@ -1,0 +1,14 @@
+[Unit]
+Description=HomeLight
+After=network.target
+
+[Service]
+User=root
+ExecStart=/home/alexcrush/HomeLight/go/homelight/mqtt
+Environment="GOTRACEBACK=crash"
+LimitCORE=infinity
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

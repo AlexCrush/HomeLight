@@ -1,0 +1,61 @@
+.equ RelayCount      = 8
+
+Relay_Init:
+    sbi DD_SerData, BIT_SerData
+    cbi Port_SerData, BIT_SerData
+    sbi DD_SerClock, BIT_SerClock
+    cbi Port_SerClock, BIT_SerClock
+    sbi DD_SerStore, BIT_SerStore
+    cbi Port_SerStore, BIT_SerStore
+    rcall WAIT_20_Micros
+
+    clr tmp1
+Relay_DirectWrite:
+; in : tmp1 - state
+    push tmp
+    push tmp1
+    ldi tmp, 8
+
+Relay_DirectWrite_Loop:
+    cbi Port_SerData, BIT_SerData
+    lsr tmp1
+    brcc Relay_DirectWrite_Loop_BitZero
+    sbi Port_SerData, BIT_SerData
+Relay_DirectWrite_Loop_BitZero:
+    nop
+    nop
+    sbi Port_SerClock, BIT_SerClock
+    nop
+    nop
+    cbi Port_SerClock, BIT_SerClock
+
+    dec tmp
+    brne Relay_DirectWrite_Loop
+
+    sbi Port_SerStore, BIT_SerStore
+    pop tmp1
+    pop tmp
+    cbi Port_SerStore, BIT_SerStore
+    ret
+
+;-------------------------------------------------------
+Relay_CalcAndWrite:
+    clr tmp1 ; target relay state
+    LDIConfigAddrZ RelayToLamp
+Relay_CalcLoop:
+    rcall Config_ReadByte_FromZPlus
+    cpi tmp, 0xFF
+    brne Relay_CalcLoop_Continue
+    rjmp Relay_DirectWrite
+
+Relay_CalcLoop_Continue:
+    mov tmp2, tmp
+    rcall Config_ReadByte_FromZPlus
+    ; tmp2 - relay mask
+    ; tmp -  lamp id
+    rcall Lamp_GetStateSafe
+    tst tmp
+    breq Relay_CalcLoop
+    or tmp1, tmp2
+    rjmp Relay_CalcLoop
+;-------------------------------------------------------

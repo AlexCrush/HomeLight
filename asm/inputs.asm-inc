@@ -1,0 +1,147 @@
+InputsPortTable:
+    .db 1 << 5, IOBASE + DDRD, IOBASE + PortD, IOBASE + PinD  ; 0
+    .db 1 << 0, IOBASE + DDRB, IOBASE + PortB, IOBASE + PinB  ; 1
+    .db 1 << 1, IOBASE + DDRB, IOBASE + PortB, IOBASE + PinB  ; 2
+    .db 1 << 4, IOBASE + DDRD, IOBASE + PortD, IOBASE + PinD  ; 3
+    .db 1 << 2, IOBASE + DDRD, IOBASE + PortD, IOBASE + PinD  ; 4
+    .db 1 << 2, IOBASE + DDRB, IOBASE + PortB, IOBASE + PinB  ; 5
+    .db 1 << 0, IOBASE + DDRA, IOBASE + PortA, IOBASE + PinA  ; 6
+    .db 1 << 1, IOBASE + DDRA, IOBASE + PortA, IOBASE + PinA  ; 7
+    .db 0, 0
+
+;------------------------------------
+Inputs_Init:
+    clr xH
+    LDIProgMemAddrZ InputsPortTable
+
+Inputs_Init_Loop:
+    lpm tmp1, Z+   ; Bit
+    tst tmp1
+    breq Inputs_Init_LoopEnd
+    mov tmp2, tmp1
+    com tmp2       ; Mask
+    lpm xL, Z+     ; DD
+
+    ld tmp, X      ; Read DD
+    and tmp, tmp2  ; Input!
+    st X, tmp      ; Write DD
+
+
+    lpm xL, Z+     ; Port
+    ld tmp, X      ; Read Port
+    ;! and tmp, tmp2  ;
+    or tmp, tmp1   ; PullUp
+    st X, tmp
+    adiw zL, 1     ; Skip Pin
+    rjmp Inputs_Init_Loop
+
+Inputs_Init_LoopEnd:
+
+    LDIRamAddrZ InputStates
+    ldi tmp1, InputCount * InputStateRecordLen
+    clr tmp
+Inputs_Init_Loop2:
+    st Z+, tmp
+    dec tmp1
+    brne Inputs_Init_Loop2
+
+    cbi DDRB, 1  ; input
+    ret
+
+;------------------------------------
+Inputs_Poll:
+    LDIProgMemAddrZ InputsPortTable
+    LDIRamAddrY InputStates
+
+    clr tmp2       ; input NR
+Inputs_Poll_Loop:
+    lpm tmp1, Z+   ; bit
+    tst tmp1
+    breq Inputs_Poll_LoopEnd
+    lpm xL, Z+     ; DD - ignore
+    lpm xL, Z+     ; Port - ignore
+    lpm xL, Z+     ; Pin
+    push zL
+    push zH
+    clr zL
+    clr zH
+
+    clr xH
+    ld tmp, X      ; read pin
+
+    and tmp, tmp1  ; get bit
+    ldd tmp, Y + InputState_Disp_T1
+    breq Inputs_Poll_Loop_Pressed
+;Released!
+    cpi tmp, ShortPress
+    brcs Inputs_Poll_Loop_ReleasedNext ; Was pressed for too short
+    cpi tmp, LongPress
+    LDIConfigAddrZ LongReleaseConfig
+    brcc Inputs_Poll_Loop_ReleasedLong
+    LDIConfigAddrZ ShortReleaseConfig
+Inputs_Poll_Loop_ReleasedLong:
+Inputs_Poll_Loop_ReleasedNext:
+    clr tmp
+    rjmp Inputs_Poll_Loop_Next
+
+Inputs_Poll_Loop_Pressed:
+; Pressed
+    cpi tmp, 255
+    breq Inputs_Poll_Loop_Next ; Pressed for too long
+    inc tmp
+    cpi tmp, ShortPress
+    brne Inputs_Poll_Loop_NotShort
+    LDIConfigAddrZ ShortPressConfig
+Inputs_Poll_Loop_NotShort:
+    cpi tmp, LongPress
+    brne Inputs_Poll_Loop_Next
+    LDIConfigAddrZ LongPressConfig
+Inputs_Poll_Loop_Next:
+    std Y + InputState_Disp_T1, tmp
+    mov tmp, zL
+    or tmp, zH
+    breq Inputs_Poll_Loop_Next_NotCall
+
+    push yH
+    push yL
+    push tmp2
+    rcall Inputs_ProcessAction
+    pop tmp2
+    pop yL
+    pop yH
+
+Inputs_Poll_Loop_Next_NotCall:
+
+    pop zH
+    pop zL
+    adiw yL, InputStateRecordLen
+    inc tmp2
+    rjmp Inputs_Poll_Loop
+Inputs_Poll_LoopEnd:
+    ret
+;------------------------------------
+Inputs_ProcessAction:
+; IN: tmp2 - input id
+;  Z - EE address of actions table
+    rcall Config_ReadByte_FromZPlus
+    cpi tmp, 0xFF
+    breq Inputs_ProcessAction_Exit
+    cp tmp, tmp2
+    brne Inputs_ProcessAction_SkipRecord
+    push tmp2
+    rcall Config_ReadByte_FromZPlus
+    mov tmp1, tmp
+    rcall Config_ReadByte_FromZPlus
+    mov tmp2, tmp
+    rcall Config_ReadByte_FromZPlus
+    mov tmp3, tmp
+    rcall Lamp_ApplyAction
+    pop tmp2
+    rjmp Inputs_ProcessAction
+Inputs_ProcessAction_SkipRecord:
+    adiw zL, 3
+    rjmp Inputs_ProcessAction
+
+Inputs_ProcessAction_Exit:
+    ret
+;------------------------------------

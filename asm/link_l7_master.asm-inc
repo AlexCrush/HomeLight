@@ -1,0 +1,107 @@
+LinkLoop:
+    ldi tmp, ConfigId_Min
+LinkLoop_NextConfig:
+    push tmp
+    rcall LinkMaster_CommunicateWithSlave
+    pop tmp
+    inc tmp
+    cpi tmp, ConfigId_Max
+    brcs LinkLoop_NextConfig
+    breq LinkLoop_NextConfig
+    lds tmp, LampStateKnown
+    tst tmp
+    brne LinkLoop
+    lds tmp, Uptime
+    cpi tmp, 200
+    brcs LinkLoop
+    ldi tmp, 1
+    sts LampStateKnown, tmp
+    rjmp LinkLoop
+;---------------------------------------------------------
+LinkMaster_CommunicateWithSelf:
+    cli
+    LDIRamAddrZ LampStateMaster
+    LDIRamAddrY LampState
+    rcall Lamp_CopyZToY
+    rcall Lamp_ReapplyOnOff
+    LDIRamAddrZ LampState
+    LDIRamAddrY LampStateMaster
+    rcall Lamp_CopyZToY
+    sei
+    ret
+;---------------------------------------------------------
+LinkMaster_CommunicateWithSlave:
+    cpi tmp, ConfigId_Master
+    breq LinkMaster_CommunicateWithSelf
+
+    mov tmp2, tmp
+
+    ldi tmp, 0xAB
+    rcall L2_SendFirstByte
+
+    mov tmp, tmp2
+    rcall L2_SendNotFirstByte
+    lds tmp, LampStateKnown
+    rcall L2_SendNotFirstByte
+    ldi tmp1, LampBytes
+    LDIRamAddrZ LampStateMaster
+LinkMaster_CommunicateWithSlave_SendLoop:
+    ld tmp, Z+
+    rcall L2_SendNotFirstByte
+    dec tmp1
+    brne LinkMaster_CommunicateWithSlave_SendLoop
+
+    rcall L2_SendCRC
+
+
+    ldi tmp1, 50
+LinkMaster_CommunicateWithSlave_Retry:
+    rcall L2_RecvFirstByte
+    breq LinkMaster_CommunicateWithSlave_Continue
+    dec tmp1
+    brne LinkMaster_CommunicateWithSlave_Retry
+    ret
+
+LinkMaster_CommunicateWithSlave_Continue:
+
+    cpi tmp, 0xCD
+    brne LinkMaster_CommunicateWithSlave_Exit
+
+    rcall L2_RecvNotFirstByte
+    cp tmp, tmp2
+    brne LinkMaster_CommunicateWithSlave_Exit
+
+    rcall L2_RecvNotFirstByte ; LampStateKnown
+    brne LinkMaster_CommunicateWithSlave_Exit
+    sts LampStateKnownExt, tmp
+
+    LDIRamAddrZ LampStateExt
+    ldi tmp1, LampBytes
+LinkLoop_ReadLampBytes:
+    rcall L2_RecvNotFirstByte
+    brne LinkMaster_CommunicateWithSlave_Exit
+    st Z+, tmp
+    dec tmp1
+    brne LinkLoop_ReadLampBytes
+
+    rcall L2_RecvCRC
+    brne LinkMaster_CommunicateWithSlave_Exit
+
+    lds tmp, LampStateKnown
+    lds tmp1, LampStateKnownExt
+    cp tmp, tmp1
+    brcs LinkMaster_CommunicateWithSlave_SkipSetKnown
+    sts LampStateKnown, tmp1
+LinkMaster_CommunicateWithSlave_SkipSetKnown:
+    cli
+    LDIRamAddrZ LampStateExt
+    LDIRamAddrY LampStateMaster
+    rcall Lamp_CopyZToY
+    ser tmp
+    sts Communicated, tmp
+    sei
+LinkMaster_CommunicateWithSlave_Exit:
+    ret
+
+;---------------------------------------------------------
+

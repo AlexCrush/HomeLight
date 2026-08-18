@@ -1,0 +1,2105 @@
+gavrasm Gerd's AVR assembler version 4.1 (C)2018 by DG4FAC
+----------------------------------------------------------
+Source file: main.asm
+Hex file:    main.hex
+Eeprom file: main.eep
+Compiled:    18.08.2026, 12:28:27
+Pass:        2
+     1: ;.device ATTiny4313
+     2: ;.include "tn2313def.inc" ; for Avr Assembler 2
+     3: .include "tn4313def.inc" ; for Avr Assembler 2
+ -> Warning 009: Include defs not necessary, using internal values!
+   File: main.asm, Line: 3
+   Source line: .include "tn4313def.inc" ; for Avr Assembler 2
+     4: ;-----------------------------------------------------------------------
+     5: ; TODO
+     6: ; 1. флаги запрета для каждого выключателя
+     7: ; 2. двойное нажатие
+     8: ; 3. игнор включенных выключателей на старте
+     9: ; 4. оптимизация протокола
+    10: ; 5. поддержка герконов?
+    11: ;------------------------------------------------------------------------
+    12: .equ ConfigId_Master = 4
+    13: 
+    14: 
+    15: .equ ConfigId = 1 ; Котельная
+    16: ;.equ ConfigId = 2 ; Кладовка
+    17: ;.equ ConfigId = 3 ; СУ2
+    18: ;.equ ConfigId = 4 ; Гостиная
+    19: ;.equ ConfigId = 5 ; СУ2-упр
+    20: ;.equ ConfigId = 6 ; Детская
+    21: 
+    22: ;.equ ConfigId = 100 ; debug
+    23: 
+    24: .if ConfigId == 1;   Котельная
+    25: .equ UseRadio = 1
+    26: .else
+    27: .equ UseRadio = 0
+    28: .endif
+    29: 
+    30: .include "hw.asm-inc"
+  Including file hw.asm-inc
+     1: .equ FREQ_MHZ = 8
+     2: 
+     3: .equ RS485_BaudRate = 57600
+     4: 
+     5: .equ RS485_UBRR  = 8 ;  (FREQ_MHZ * 1000000 / (16*RS485_BaudRate)) - 1
+     6: 
+     7: ;------------------------------------------------------------------------
+     8: .equ IOBASE = 32
+     9: ;------------------------------------------------------------------------
+    10: 
+    11: .equ UseEE = 0
+    12: 
+    13: .equ InputCount = 8
+    14: 
+    15: .equ Pin_Led         = PinB
+    16: .equ PORT_Led        = PortB
+    17: .equ DD_Led          = DDRB
+    18: .equ BIT_Led         = 4
+    19: 
+    20: .if UseRadio == 1
+    21: .equ PIN_Radio       = PinD
+    22: .equ PORT_Radio      = PortD
+    23: .equ DD_Radio        = DDRD
+    24: .equ BIT_Radio       = 3
+    25: .endif
+    26: 
+    27: .equ Port_RS485TX    = PortD
+    28: .equ DD_RS485TX      = DDRD
+    29: .equ BIT_RS485TX     = 1
+    30: 
+    31: .equ Port_RS485RX    = PortD
+    32: .equ DD_RS485RX      = DDRD
+    33: .equ BIT_RS485RX     = 0
+    34: 
+    35: .equ Port_RS485DIR   = PortD    ; 1 = out, 0 = input
+    36: .equ DD_RS485DIR     = DDRD
+    37: .equ BIT_RS485DIR    = 6
+    38: 
+    39: .equ Port_SerData    = PortB
+    40: .equ DD_SerData      = DDRB
+    41: .equ BIT_SerData     = 6
+    42: 
+    43: .equ Port_SerClock   = PortB
+    44: .equ DD_SerClock     = DDRB
+    45: .equ BIT_SerClock    = 7
+    46: 
+    47: .equ Port_SerStore   = PortB
+    48: .equ DD_SerStore     = DDRB
+    49: .equ BIT_SerStore    = 3
+    50: 
+    51: 
+    52: ;---------------------------------------------------------------------
+    53: 
+    54: 
+    55: .if 0
+    56: 
+    57: avrdude -c usbasp -p t4313 -B 20
+    58: avrdude -c usbasp -p t4313 -U efuse:w:0xFF:m hfuse:w:0x9F:m -U lfuse:w:0xE4:m     -B 20
+    59: 
+    60: 
+    61: ;---------------------------------------------------------------------
+    62: ;Fuses: (E:FF  H:9F, L:E4)
+    63: E
+    64: bit def our
+    65:   7  1  1
+    66:   6  1  1
+    67:   5  1  1
+    68:   4  1  1
+    69:   3  1  1
+    70:   2  1  1
+    71:   1  1  1
+    72:   0  1  1 SELFPRGEN  Enables SPM instruction
+    73: 
+    74: H
+    75: bit def our
+    76:   7  1  1    DWEN Enables debugWIRE
+    77:   6  1  0    EESAVE Preserves EEPROM memory during Chip Erase operation
+    78:   5  0  0    SPIEN Enables serial programming and downloading of data to device
+    79:   4  1  1    WDTON Sets watchdog timer permanently on
+    80:   3  1  1    BODLEVEL2
+    81:   2  1  1    BODLEVEL1 Sets BOD trigger level
+    82:   1  1  1    BODLEVEL0
+    83:   0  1  1    RSTDISBL Disables external reset
+    84: 
+    85: L
+    86: bit def our
+    87:   7  0  1    CKDIV8 Divide clock by 8
+    88:   6  1  1    CKOUT Clock Output
+    89:   5  1  1    SUT1   Select start-up time
+    90:   4  0  0    SUT0   Select start-up time
+    91:   3  0  0    CKSEL3  Select Clock source
+    92:   2  0  1    CKSEL2
+    93:   1  1  0    CKSEL1
+    94:   0  0  0    CKSEL0
+    95: 
+    96: .endif
+  Continuing file main.asm
+    31: .include "macroses.asm-inc"
+  Including file macroses.asm-inc
+     1: .macro LDIProgMemAddrZ
+     2:         ldi zH,High(@0 * 2)
+     3:         ldi zL,Low(@0 * 2)
+     4: .endmacro
+     5: 
+     6: .macro LDIProgMemAddrX
+     7:         ldi xH,High(@0 * 2)
+     8:         ldi xL,Low(@0 * 2)
+     9: .endmacro
+    10: 
+    11: .macro LDIRamAddrZ
+    12:         ldi zH,High(@0 )
+    13:         ldi zL,Low(@0)
+    14: .endmacro
+    15: 
+    16: .macro LDIRamAddrX
+    17:         ldi xH,High(@0 )
+    18:         ldi xL,Low(@0)
+    19: .endmacro
+    20: 
+    21: .macro LDIRamAddrY
+    22:         ldi yH,High(@0 )
+    23:         ldi yL,Low(@0)
+    24: .endmacro
+    25: 
+    26: 
+    27: 
+    28: 
+    29: .macro LDIWZ
+    30:         ldi zH,High(@0 )
+    31:         ldi zL,Low(@0)
+    32: .endmacro
+    33: 
+    34: 
+    35: 
+    36: .if UseEE == 1
+    37: .macro LDIConfigAddrZ
+    38:         ldi zH,High(@0 )
+    39:         ldi zL,Low(@0)
+    40: .endmacro
+    41: 
+    42: .else
+    43: ; PROG Flash
+    44: .macro LDIConfigAddrZ
+    45:         ldi zH,High(@0 * 2)
+    46:         ldi zL,Low(@0 * 2)
+    47: .endmacro
+    48: 
+    49: .endif
+  Continuing file main.asm
+    32: .include "consts.asm-inc"
+  Including file consts.asm-inc
+     1: .def tmp           = r16
+     2: .def tmp1          = r17
+     3: .def tmp2          = r18
+     4: .def tmp3          = r19
+     5: 
+     6: .equ LampCount     = 64
+     7: 
+     8: .if (LampCount & (LampCount-1)) != 0 ; must be power of two!
+     9: .error "bad lamp count"
+    10: .endif
+    11: 
+    12: .equ LampBytes     = LampCount / 8
+    13: 
+    14: 
+    15: .equ ShortPress = 5 ; 0.1 sec
+    16: .equ LongPress = 50  ; 1 sec
+    17: 
+    18: .equ LampAction_OffAll      = 0 ; no args
+    19: .equ LampAction_Off         = 1 ; arg0 - LampNo
+    20: .equ LampAction_On          = 2 ; arg0 - LampNo
+    21: .equ LampAction_Switch      = 3 ; arg0 - LampNo
+    22: .equ LampAction_CopyFrom    = 4 ; arg0 = LampNo, arg1 = Source LampNo
+    23: .equ LampAction_SetOffTimer = 5 ; arg0 = LampNo, arg1 = Ticks
+    24: .equ LampAction_Custom      = 6 ; arg0, arg1 = progmemaddr to call
+    25: 
+    26: .equ MaxOffTimers = 4
+    27: .equ OffTimersBytes = MaxOffTimers * 2
+    28: 
+    29: .equ LampOffSubtimerMax = 50 ; 1 sec
+    30: 
+    31: .equ ConfigId_Min = 0 ; 0 - computer
+    32: .equ ConfigId_Max = 6
+    33: 
+    34: 
+  Continuing file main.asm
+    33: ;------------------------------------------------------------------------
+    34: .if UseRadio == 1
+    35: .equ _Timer1Cmp = Radio_Tick
+    36: .else
+    37: .equ _Timer1Cmp = _RESET
+    38: .endif
+    39: 
+    40: .CSEG
+    41: .ORG 0x0000
+    42: 000000   C014  rjmp _RESET         ;  0
+    43: 000001   C013  rjmp _RESET         ;  1 INT0
+    44: 000002   C012  rjmp _RESET         ;  2 INT1
+    45: 000003   C011  rjmp _RESET         ;  3 TIMER1 CAPT   = Timer/Counter1 Capture Event
+    46: 000004   C33E  rjmp _Timer1Cmp     ;  4 TIMER1 COMPA  = Timer/Counter1 Compare Match A
+    47: 000005   C00F  rjmp _RESET         ;  5 TIMER1 OVF    = Timer/Counter1 Overflow
+    48: 000006   C00E  rjmp _RESET         ;  6 TIMER0 OVF    = Timer/Counter0 Overflow
+    49: 000007   C00D  rjmp _RESET         ;  7 USART0, RX    = USART0, Rx Complete
+    50: 000008   C00C  rjmp _RESET         ;  8 USART0, UDRE  = USART0 Data Register Empty
+    51: 000009   C00B  rjmp _RESET         ;  9 USART0, TX    = USART0, Tx Complete
+    52: 00000A   C00A  rjmp _RESET         ;  A ANALOG COMP   = Analog Comparator
+    53: 00000B   C009  rjmp _RESET         ;  B PCINT0        = Pin Change Interrupt Request 0
+    54: 00000C   C008  rjmp _RESET         ;  C TIMER1 COMPB  = Timer/Counter1 Compare Match B
+    55: 00000D   C030  rjmp _Timer0Cmp     ;  D TIMER0 COMPA  = Timer/Counter0 Compare Match A
+    56: 00000E   C006  rjmp _RESET         ;  E TIMER0 COMPB  = Timer/Counter0 Compare Match B
+    57: 00000F   C005  rjmp _RESET         ;  F USI START     = USI Start Condition
+    58: 000010   C004  rjmp _RESET         ; 10 USI OVERFLOW  = USI Overflow
+    59: 000011   C003  rjmp _RESET         ; 11 EE READY      = EEPROM Ready
+    60: 000012   C002  rjmp _RESET         ; 12 WDT OVERFLOW  = Watchdog Timer Overflow
+    61: 000013   C001  rjmp _RESET         ; 13 PCINT1        = Pin Change Interrupt Request 1
+    62: 000014   C000  rjmp _RESET         ; 14 PCINT2        = Pin Change Interrupt Request 2
+    63: 
+    64: _RESET:
+    65: 000015   94F8  cli
+    66: 000016   E50F  ldi tmp, LOW(RAMEND)
+    67: 000017   BF0D  out SPL, tmp
+    68: 000018   E001  ldi tmp, HIGH(RAMEND)
+    69: 000019   BF0E  out SPH, tmp
+    70: 
+    71: 00001A   9847  cbi ACSR, ACD ; disable Analog Comparator
+    72: 
+    73: 00001B   D0A5  rcall Lamp_Init
+    74: 00001C   D07A  rcall Relay_Init
+    75: 00001D   D1AB  rcall Inputs_Init
+    76: 
+    77: 00001E   9A8E  sbi DD_RS485DIR, BIT_RS485DIR       ; Out
+    78: 00001F   9896  cbi Port_RS485DIR, BIT_RS485DIR     ; RS485 - In
+    79: 
+    80: 000020   9A89  sbi DD_RS485TX, BIT_RS485TX ; Out
+    81: 000021   9888  cbi DD_RS485RX, BIT_RS485RX ; In
+    82: 000022   9A90  sbi Port_RS485RX, BIT_RS485RX ; Pullup
+    83: 
+    84: 000023   9ABC  sbi DD_Led, BIT_Led
+    85: 000024   98C4  cbi PORT_Led, BIT_Led
+    86: 
+    87: 
+    88: ; USART config: 57600, 8 data bits, 2 stop bits, NO parity
+    89: ; stty -F /dev/ttyUSB0 57600 cs8 cstopb -parenb
+    90: ; nc -l 1234 </dev/ttyUSB0 >/dev/ttyUSB0
+    91: ; nc localhost 1234
+    92: .if 1
+    93: 000025   E000  ldi tmp, HIGH(RS485_UBRR)
+    94: 000026   B902  out UBRRH, tmp
+    95: 000027   E008  ldi tmp, LOW(RS485_UBRR)
+    96: 000028   B909  out UBRRL, tmp
+    97: 000029   E00E  ldi tmp, (1<<USBS)|(3<<UCSZ0) ; Set frame format: 8data, 2stop bit
+    98: 00002A   B903  out UCSRC,r16
+    99: 00002B   E108  ldi  tmp, (1<<RXEN)|(1<<TXEN) ; Enable receiver and transmitter
+   100: 00002C   B90A  out UCSRB,tmp
+   101: .endif
+   102: 
+   103: ; Timer0 Config
+   104: 00002D   E90C  ldi tmp, (FREQ_MHZ * 1000000 / 1024) / 50
+   105: 00002E   BF06  out OCR0A, tmp
+   106: 00002F   E002  ldi tmp, 0b00000010   ; CTC mode
+   107: 000030   BF00  out TCCR0A, tmp
+   108: 000031   E005  ldi tmp, 0b00000101  ; // ClockSource =  Fclk / 1024
+   109: 000032   BF03  out TCCR0B, tmp      ; enable interrupt on compare match
+   110: 000033   B709  in tmp, TIMSK
+   111: 000034   6001  ori tmp, 1 << OCIE0A
+   112: 000035   BF09  out TIMSK, tmp
+   113: 
+   114: 000036   2700  clr tmp
+   115: 000037   9300  sts Uptime, tmp
+        000038   0092
+   116: 000039   9300  sts Communicated, tmp
+        00003A   0093
+   117: 
+   118: .if UseRadio == 1
+   119: 00003B   D2A8  rcall Radio_Init
+   120: .endif
+   121: 
+   122: .if 0
+   123: l1:
+   124:     sbi Port_RS485DIR, BIT_RS485DIR
+   125:     sbi Port_RS485TX, BIT_RS485TX
+   126:     sbi Port_Led, BIT_Led
+   127:     rcall WAIT_1_Sec
+   128:     rcall WAIT_1_Sec
+   129:     rcall WAIT_1_Sec
+   130:     cbi Port_RS485TX, BIT_RS485TX
+   131:     cbi Port_Led, BIT_Led
+   132:     rcall WAIT_1_Sec
+   133:     rcall WAIT_1_Sec
+   134:     rcall WAIT_1_Sec
+   135:     rjmp l1
+   136: .endif
+   137: 
+   138: 00003C   9478  sei
+   139: 00003D   C26B  rjmp LinkLoop
+   140: ;----------------------------
+   141: 
+   142: _Timer0Cmp:
+   143: 00003E   930F  push tmp
+   144: 00003F   B70F  in tmp, SREG
+   145: 000040   930F  push tmp
+   146: 000041   93EF  push zL
+   147: 000042   93FF  push zH
+   148: 000043   93AF  push xL
+   149: 000044   93BF  push xH
+   150: 000045   93CF  push yL
+   151: 000046   93DF  push yH
+   152: 000047   931F  push tmp1
+   153: 000048   932F  push tmp2
+   154: 000049   933F  push tmp3
+   155: 
+   156: 00004A   9100  lds tmp, Uptime
+        00004B   0092
+   157: 00004C   9503  inc tmp
+   158: 00004D   9300  sts Uptime, tmp
+        00004E   0092
+   159: 00004F   7007  andi tmp, 0b0000111
+   160: 000050   F439  brne SkipCheckComminicated
+   161: 000051   9110  lds tmp1, Communicated
+        000052   0093
+   162: 000053   2311  tst tmp1
+   163: 000054   F019  breq NotCommunicated
+   164: 000055   9300  sts Communicated, tmp
+        000056   0093
+   165: 
+   166: 000057   9AB4  sbi PIN_Led, BIT_Led
+   167: 
+   168: NotCommunicated:
+   169: SkipCheckComminicated:
+   170: 
+   171: 000058   D18B  rcall Inputs_Poll
+   172: 000059   D059  rcall Relay_CalcAndWrite
+   173: 
+   174: 00005A   9100  lds tmp, LampOffSubtimer
+        00005B   0081
+   175: 00005C   950A  dec tmp
+   176: 00005D   F411  brne SkipLampOffTimer
+   177: 00005E   D11C  rcall Lamp_TickOffTimers
+   178: 00005F   E302  ldi tmp, LampOffSubtimerMax
+   179: SkipLampOffTimer:
+   180: 000060   9300  sts LampOffSubtimer, tmp
+        000061   0081
+   181: 
+   182: .if UseRadio == 1
+   183: 000062   D299  rcall Radio_ProcessInputs
+   184: .endif
+   185: 
+   186: 000063   913F  pop tmp3
+   187: 000064   912F  pop tmp2
+   188: 000065   911F  pop tmp1
+   189: 000066   91DF  pop yH
+   190: 000067   91CF  pop yL
+   191: 000068   91BF  pop xH
+   192: 000069   91AF  pop xL
+   193: 00006A   91FF  pop zH
+   194: 00006B   91EF  pop zL
+   195: 00006C   910F  pop tmp
+   196: 00006D   BF0F  out SREG, tmp
+   197: 00006E   910F  pop tmp
+   198: 
+   199: 00006F   9518  reti
+   200: 
+   201: ;--------------------------------------------------------------------------------------
+   202: 
+   203: ;---------------------------------------------------------------------
+   204: .include "delays.asm-inc"
+  Including file delays.asm-inc
+     1: ;// короткая задержка
+     2: SMALL_WAIT:
+     3: 000070   0000  nop
+     4: 000071   9508  ret
+     5: ;---------------------------------------------------------------------------
+     6: 
+     7: WAIT_1_Sec:
+     8: 000072   E00A  ldi tmp, 10
+     9: WAIT_1_Sec_1:
+    10: 000073   930F  push tmp
+    11: 000074   E604  ldi tmp, 100
+    12: WAIT_1_Sec_2:
+    13: 000075   930F  push tmp
+    14: 000076   D007  rcall WAIT_1_Milli
+    15: 000077   910F  pop tmp
+    16: 000078   950A  dec tmp
+    17: 000079   F7D9  brne WAIT_1_Sec_2
+    18: 00007A   910F  pop tmp
+    19: 00007B   950A  dec tmp
+    20: 00007C   F7B1  brne WAIT_1_Sec_1
+    21: 00007D   9508  ret
+    22: 
+    23: ;---------------------------------------------------------------------------
+    24: 
+    25: WAIT_1_Milli:
+    26: 00007E   D003  rcall WAIT_300_Micros
+    27: 00007F   D002  rcall WAIT_300_Micros
+    28: 000080   D001  rcall WAIT_300_Micros
+    29: 000081   C002  rjmp  WAIT_100_Micros
+    30: ;---------------------------------------------------------------------------
+    31: WAIT_300_Micros:
+    32: 000082   D001  rcall WAIT_100_Micros
+    33: 000083   D000  rcall WAIT_100_Micros
+    34: WAIT_100_Micros:
+    35: 000084   D003  rcall WAIT_20_Micros
+    36: 000085   D002  rcall WAIT_20_Micros
+    37: WAIT_60_Micros:
+    38: 000086   D001  rcall WAIT_20_Micros
+    39: WAIT_40_Micros:
+    40: 000087   D000  rcall WAIT_20_Micros
+    41: WAIT_20_Micros: ; X micros = X * (FREQ / 1000000) cycles.  20 mircos = 400 cycles at 20MHz
+    42: 000088   930F  push tmp
+    43: 000089   E200  ldi tmp, FREQ_MHZ * 4 ; @20 MHz tmp=80, total time is 5*80=400 cycles
+    44: 00008A   C002  rjmp WAIT_5_Micros_Loop
+    45: ;---------------------------------------------------------------------------
+    46: WAIT_5_Micros: ; X micros = X * (FREQ / 1000000) cycles.  5 mircos = 100 cycles at 20MHz
+    47: 00008B   930F  push tmp
+    48: 00008C   E008  ldi tmp, FREQ_MHZ ; @20 MHz tmp=20, total time is 100 cycles
+    49: WAIT_5_Micros_Loop: ; 5 cycles
+    50: 00008D   0000  nop
+    51: 00008E   0000  nop
+    52: 00008F   950A  dec tmp
+    53: 000090   F7E1  brne WAIT_5_Micros_Loop
+    54: 000091   910F  pop tmp
+    55: 000092   9508  ret
+    56: ;---------------------------------------------------------------------------
+    57: WAIT_Tmp_Millis:
+    58: 000093   DFEA  rcall WAIT_1_Milli
+    59: 000094   950A  dec tmp
+    60: 000095   F7E9  brne WAIT_Tmp_Millis
+    61: 000096   9508  ret
+    62: ;---------------------------------------------------------------------------
+  Continuing file main.asm
+   205: .include "relay.asm-inc"
+  Including file relay.asm-inc
+     1: .equ RelayCount      = 8
+     2: 
+     3: Relay_Init:
+     4: 000097   9ABE  sbi DD_SerData, BIT_SerData
+     5: 000098   98C6  cbi Port_SerData, BIT_SerData
+     6: 000099   9ABF  sbi DD_SerClock, BIT_SerClock
+     7: 00009A   98C7  cbi Port_SerClock, BIT_SerClock
+     8: 00009B   9ABB  sbi DD_SerStore, BIT_SerStore
+     9: 00009C   98C3  cbi Port_SerStore, BIT_SerStore
+    10: 00009D   DFEA  rcall WAIT_20_Micros
+    11: 
+    12: 00009E   2711  clr tmp1
+    13: Relay_DirectWrite:
+    14: ; in : tmp1 - state
+    15: 00009F   930F  push tmp
+    16: 0000A0   931F  push tmp1
+    17: 0000A1   E008  ldi tmp, 8
+    18: 
+    19: Relay_DirectWrite_Loop:
+    20: 0000A2   98C6  cbi Port_SerData, BIT_SerData
+    21: 0000A3   9516  lsr tmp1
+    22: 0000A4   F408  brcc Relay_DirectWrite_Loop_BitZero
+    23: 0000A5   9AC6  sbi Port_SerData, BIT_SerData
+    24: Relay_DirectWrite_Loop_BitZero:
+    25: 0000A6   0000  nop
+    26: 0000A7   0000  nop
+    27: 0000A8   9AC7  sbi Port_SerClock, BIT_SerClock
+    28: 0000A9   0000  nop
+    29: 0000AA   0000  nop
+    30: 0000AB   98C7  cbi Port_SerClock, BIT_SerClock
+    31: 
+    32: 0000AC   950A  dec tmp
+    33: 0000AD   F7A1  brne Relay_DirectWrite_Loop
+    34: 
+    35: 0000AE   9AC3  sbi Port_SerStore, BIT_SerStore
+    36: 0000AF   911F  pop tmp1
+    37: 0000B0   910F  pop tmp
+    38: 0000B1   98C3  cbi Port_SerStore, BIT_SerStore
+    39: 0000B2   9508  ret
+    40: 
+    41: ;-------------------------------------------------------
+    42: Relay_CalcAndWrite:
+    43: 0000B3   2711  clr tmp1 ; target relay state
+    44:     LDIConfigAddrZ RelayToLamp
+    45: Relay_CalcLoop:
+    46: 0000B6   D179  rcall Config_ReadByte_FromZPlus
+    47: 0000B7   3F0F  cpi tmp, 0xFF
+    48: 0000B8   F409  brne Relay_CalcLoop_Continue
+    49: 0000B9   CFE5  rjmp Relay_DirectWrite
+    50: 
+    51: Relay_CalcLoop_Continue:
+    52: 0000BA   2F20  mov tmp2, tmp
+    53: 0000BB   D174  rcall Config_ReadByte_FromZPlus
+    54:     ; tmp2 - relay mask
+    55:     ; tmp -  lamp id
+    56: 0000BC   D032  rcall Lamp_GetStateSafe
+    57: 0000BD   2300  tst tmp
+    58: 0000BE   F3B9  breq Relay_CalcLoop
+    59: 0000BF   2B12  or tmp1, tmp2
+    60: 0000C0   CFF5  rjmp Relay_CalcLoop
+    61: ;-------------------------------------------------------
+  Continuing file main.asm
+   206: .include "lamp.asm-inc"
+  Including file lamp.asm-inc
+     1: Lamp_Init:
+     2: 0000C1   E302  ldi tmp, LampOffSubtimerMax
+     3: 0000C2   9300  sts LampOffSubtimerMax, tmp
+        0000C3   0032
+     4: 
+     5: 0000C4   2700  clr tmp
+     6: 0000C5   9300  sts LampStateKnown, tmp
+        0000C6   0060
+     7: 
+     8: 0000C7   2700  clr tmp
+     9:     LDIRamAddrZ LampOffTimers
+    10: 0000CA   E018  ldi tmp1, OffTimersBytes
+    11: 0000CB   D00C  rcall LampWriteBytesLoop
+    12: 
+    13:     LDIRamAddrZ LampState
+    14: 0000CE   D008  rcall LampWriteAllBytes
+    15:     LDIRamAddrZ LampStateMaster
+    16: 0000D1   D005  rcall LampWriteAllBytes
+    17:     LDIRamAddrZ LampStateMaskOn
+    18: 0000D4   D002  rcall LampWriteAllBytes
+    19:     LDIRamAddrZ LampStateMaskOff
+    20: 
+    21: LampWriteAllBytes:
+    22: 0000D7   E018  ldi tmp1, LampBytes
+    23: LampWriteBytesLoop:
+    24: 0000D8   9301  st Z+, tmp
+    25: 0000D9   951A  dec tmp1
+    26: 0000DA   F7E9  brne LampWriteBytesLoop
+    27: 0000DB   9508  ret
+    28: ;-------------------------------------------------------
+    29: Lamp_GetOffsetAndMask:
+    30: ; in: tmp - lamp index
+    31: ; out:
+    32: ;      tmp1 - lamp offset
+    33: ;      tmp2 - lamp bit mask  (00001000)
+    34: 0000DC   930F  push tmp
+    35: 0000DD   E021  ldi tmp2, 1
+    36: 0000DE   7007  andi tmp, 7
+    37: 0000DF   F019  breq Lamp_GetOffsetAndMask_BitLoopEnd
+    38: Lamp_GetOffsetAndMask_BitLoop:
+    39: 0000E0   0F22  lsl tmp2
+    40: 0000E1   950A  dec tmp
+    41: 0000E2   F7E9  brne Lamp_GetOffsetAndMask_BitLoop
+    42: Lamp_GetOffsetAndMask_BitLoopEnd:
+    43: 0000E3   911F  pop tmp1
+    44: 0000E4   9516  lsr tmp1
+    45: 0000E5   9516  lsr tmp1
+    46: 0000E6   9516  lsr tmp1
+    47: 0000E7   9508  ret
+    48: ;-------------------------------------------------------
+    49: Lamp_AddOffsetGetMask:
+    50: 0000E8   DFF3  rcall Lamp_GetOffsetAndMask
+    51: Lamp_AddOffset:
+    52: 0000E9   932F  push tmp2
+    53: 0000EA   2722  clr tmp2
+    54: 0000EB   0FE1  add zL, tmp1
+    55: 0000EC   1FF2  adc zH, tmp2
+    56: 0000ED   912F  pop tmp2
+    57: 0000EE   9508  ret
+    58: ;-------------------------------------------------------
+    59: Lamp_GetStateSafe:
+    60: ; in: tmp - lamp index
+    61: ; out: tmp - lamp state (0 / not 0)
+    62: 0000EF   3400  cpi tmp, LampCount
+    63: 0000F0   F010  brcs Lamp_GetState
+    64: 0000F1   2700  clr tmp
+    65: 0000F2   9508  ret
+    66: Lamp_GetState:
+    67: 0000F3   93EF  push zL
+    68: 0000F4   93FF  push zH
+    69: 0000F5   931F  push tmp1
+    70: 0000F6   932F  push tmp2
+    71:     LDIRamAddrZ LampState
+    72: 0000F9   DFEE  rcall Lamp_AddOffsetGetMask
+    73: 0000FA   8100  ld tmp, Z
+    74: 0000FB   2302  and tmp, tmp2
+    75: 0000FC   912F  pop tmp2
+    76: 0000FD   911F  pop tmp1
+    77: 0000FE   91FF  pop zH
+    78: 0000FF   91EF  pop zL
+    79: 000100   9508  ret
+    80: ;-------------------------------------------------------
+    81: Lamp_ApplyAction:
+    82: ; in:
+    83: ;   tmp1 Action
+    84: ;   tmp2 arg0 (LampNo)
+    85: ;   tmp3 arg1 (various)
+    86: 000101   93EF  push zL
+    87: 000102   93FF  push zH
+    88: 000103   3010  cpi tmp1, LampAction_OffAll
+    89: 000104   F079  breq Lamp_ApplyAction_OffAll
+    90: 
+    91: 000105   3011  cpi tmp1, LampAction_Off
+    92: 000106   F141  breq Lamp_ApplyAction_OffOnSwitch
+    93: 000107   3012  cpi tmp1, LampAction_On
+    94: 000108   F131  breq Lamp_ApplyAction_OffOnSwitch
+    95: 000109   3013  cpi tmp1, LampAction_Switch
+    96: 00010A   F121  breq Lamp_ApplyAction_OffOnSwitch
+    97: 
+    98: 00010B   3014  cpi tmp1, LampAction_CopyFrom
+    99: 00010C   F0A1  breq Lamp_ApplyAction_CopyFrom
+   100: 
+   101: 00010D   3015  cpi tmp1, LampAction_SetOffTimer
+   102: 00010E   F0F1  breq Lamp_ApplyAction_SetOffTimer
+   103: 
+   104: 00010F   3016  cpi tmp1, LampAction_Custom
+   105: 000110   F109  breq Lamp_ApplyAction_Custom
+   106: 
+   107: ; Uknown action
+   108: Lamp_ApplyActionExit:
+   109: 000111   91FF  pop zH
+   110: 000112   91EF  pop zL
+   111: 000113   9508  ret
+   112: 
+   113: Lamp_ApplyAction_OffAll:
+   114: 000114   2700  clr tmp
+   115:     LDIRamAddrZ LampState
+   116: 000117   DFBF  rcall LampWriteAllBytes
+   117: 000118   2700  clr tmp
+   118:     LDIRamAddrZ LampStateMaskOn
+   119: 00011B   DFBB  rcall LampWriteAllBytes
+   120: 00011C   EF0F  ser tmp
+   121:     LDIRamAddrZ LampStateMaskOff
+   122: 00011F   DFB7  rcall LampWriteAllBytes
+   123: 000120   CFF0  rjmp Lamp_ApplyActionExit
+   124: 
+   125: Lamp_ApplyAction_CopyFrom:
+   126: 000121   932F  push tmp2 ; Destination lamp id
+   127: 000122   2F03  mov tmp, tmp3
+   128:     LDIRamAddrZ LampState
+   129: 000125   DFC2  rcall Lamp_AddOffsetGetMask
+   130: 000126   8100  ld tmp, Z
+   131: 000127   2302  and tmp, tmp2
+   132: 000128   912F  pop tmp2
+   133: 000129   E011  ldi tmp1, LampAction_Off
+   134: 00012A   F021  breq Lamp_ApplyAction_OffOnSwitch
+   135: 00012B   E012  ldi tmp1, LampAction_On
+   136: 00012C   C002  rjmp Lamp_ApplyAction_OffOnSwitch
+   137: 
+   138: Lamp_ApplyAction_SetOffTimer:
+   139: 00012D   D036  rcall Lamp_SetOffTimer
+   140: 00012E   CFE2  rjmp Lamp_ApplyActionExit ; todo
+   141: 
+   142: Lamp_ApplyAction_OffOnSwitch:
+   143: 00012F   2F02  mov tmp, tmp2
+   144: 000130   D005  rcall Lamp_Do_OffOnSwitch
+   145: 000131   CFDF  rjmp Lamp_ApplyActionExit
+   146: 
+   147: Lamp_ApplyAction_Custom:
+   148: 000132   2FE2  mov zL, tmp2
+   149: 000133   2FF3  mov zH, tmp3
+   150: 000134   9509  icall ; got bless us!
+   151: 000135   CFDB  rjmp Lamp_ApplyActionExit
+   152: ;-------------------------------------------------------
+   153: ; IN: tmp1 - action (LampAction_Off/On/Switch)
+   154: ;     tmp - lamp
+   155: 
+   156: Lamp_Do_OffOnSwitch:
+   157: 000136   931F  push tmp1 ; action
+   158:     LDIRamAddrZ LampState
+   159: 000139   DFAE  rcall Lamp_AddOffsetGetMask
+   160: 00013A   2F32  mov tmp3, tmp2
+   161: 00013B   9530  com tmp3
+   162:     ; tmp1 - offset
+   163:     ; tmp2 - OR mask  00010000
+   164:     ; tmp3 - AND mask 11101111
+   165: 00013C   910F  pop tmp
+   166: 
+   167: 00013D   3001  cpi tmp, LampAction_Off
+   168: 00013E   F029  breq Lamp_Do_Off
+   169: 00013F   3002  cpi tmp, LampAction_On
+   170: 000140   F099  breq Lamp_Do_On
+   171: 
+   172:     ; switch otherwise
+   173: 000141   8100  ld tmp, Z
+   174: 000142   2302  and tmp, tmp2
+   175: 000143   F081  breq Lamp_Do_On
+   176: Lamp_Do_Off:
+   177: 000144   8100  ld tmp, Z
+   178: 000145   2303  and tmp, tmp3
+   179: 000146   8300  st Z, tmp
+   180:     LDIRamAddrZ LampStateMaskOn
+   181: 000149   DF9F  rcall Lamp_AddOffset
+   182: 00014A   8100  ld tmp, Z
+   183: 00014B   2303  and tmp, tmp3
+   184: 00014C   8300  st Z, tmp
+   185:     LDIRamAddrZ LampStateMaskOff
+   186: 00014F   DF99  rcall Lamp_AddOffset
+   187: 000150   8100  ld tmp, Z
+   188: 000151   2B02  or tmp, tmp2
+   189: 000152   8300  st Z, tmp
+   190: 000153   9508  ret
+   191: 
+   192: Lamp_Do_On:
+   193: 000154   8100  ld tmp, Z
+   194: 000155   2B02  or tmp, tmp2
+   195: 000156   8300  st Z, tmp
+   196:     LDIRamAddrZ LampStateMaskOn
+   197: 000159   DF8F  rcall Lamp_AddOffset
+   198: 00015A   8100  ld tmp, Z
+   199: 00015B   2B02  or tmp, tmp2
+   200: 00015C   8300  st Z, tmp
+   201:     LDIRamAddrZ LampStateMaskOff
+   202: 00015F   DF89  rcall Lamp_AddOffset
+   203: 000160   8100  ld tmp, Z
+   204: 000161   2303  and tmp, tmp3
+   205: 000162   8300  st Z, tmp
+   206: 000163   9508  ret
+   207: 
+   208: ;-------------------------------------------------------
+   209: Lamp_SetOffTimer:
+   210: ; in: tmp2 - lamp id
+   211: ;     tmp3 - timer value
+   212: 
+   213:     ; pass 1 - try find entry with same lamp id
+   214: 000164   E014  ldi tmp1, MaxOffTimers
+   215:     LDIRamAddrZ LampOffTimers
+   216: Lamp_SetOffTimer_TryNext:
+   217: 000167   9101  ld tmp, Z+
+   218: 000168   9101  ld tmp, Z+
+   219: 000169   1702  cp tmp, tmp2
+   220: 00016A   F061  breq Lamp_SetOffTimer_UseAddr
+   221: 00016B   951A  dec tmp1
+   222: 00016C   F7D1  brne Lamp_SetOffTimer_TryNext
+   223: 
+   224:     ; pass 2 - try find entry with zero timeout
+   225: 00016D   E014  ldi tmp1, MaxOffTimers
+   226:     LDIRamAddrZ LampOffTimers
+   227: Lamp_SetOffTimer_TryNext2:
+   228: 000170   9101  ld tmp, Z+
+   229: 000171   2300  tst tmp
+   230: 000172   9101  ld tmp, Z+
+   231: 000173   F019  breq Lamp_SetOffTimer_UseAddr
+   232: 000174   951A  dec tmp1
+   233: 000175   F7D1  brne Lamp_SetOffTimer_TryNext2
+   234:     ;  oops no empty cells for timer
+   235: 000176   9508  ret
+   236: 
+   237: Lamp_SetOffTimer_UseAddr:
+   238: 000177   9732  sbiw zL, 2
+   239: 000178   9331  st Z+, tmp3  ; timer val
+   240: 000179   8320  st Z, tmp2   ; lamp id
+   241: 00017A   9508  ret
+   242: ;-------------------------------------------------------
+   243: Lamp_TickOffTimers:
+   244: 00017B   E034  ldi tmp3, MaxOffTimers
+   245:     LDIRamAddrZ LampOffTimers
+   246: Lamp_TickOffTimers_Loop:
+   247: 00017E   9101  ld tmp, Z+
+   248: 00017F   9121  ld tmp2, Z+
+   249: 000180   2300  tst tmp
+   250: 000181   F071  breq Lamp_TickOffTimers_Loop_Next
+   251: 000182   9732  sbiw zL, 2
+   252: 000183   950A  dec tmp
+   253: 000184   9301  st Z+, tmp
+   254: 000185   9631  adiw zL, 1
+   255: 000186   2300  tst tmp
+   256: 000187   F441  brne Lamp_TickOffTimers_Loop_Next
+   257:     ; Do off!
+   258: 000188   93EF  push zL
+   259: 000189   93FF  push zH
+   260: 00018A   933F  push tmp3
+   261: 00018B   E011  ldi tmp1, LampAction_Off
+   262:     ; tmp2 - lamp id
+   263: 00018C   DF74  rcall Lamp_ApplyAction
+   264: 00018D   913F  pop tmp3
+   265: 00018E   91FF  pop zH
+   266: 00018F   91EF  pop zL
+   267: Lamp_TickOffTimers_Loop_Next:
+   268: 000190   953A  dec tmp3
+   269: 000191   F761  brne Lamp_TickOffTimers_Loop
+   270: 000192   9508  ret
+   271: ;-------------------------------------------------------
+   272: Lamp_ReapplyOnOff:
+   273:     ; Reapply On
+   274:     LDIRamAddrZ LampState
+   275:     LDIRamAddrY LampStateMaskOn
+   276: 000197   E038  ldi tmp3, LampBytes
+   277: Lamp_ReapplyOnLoop:
+   278: 000198   8100  ld tmp, Z      ; 01011100
+   279: 000199   8118  ld tmp1, Y     ; 01000001
+   280: 00019A   2F20  mov tmp2, tmp
+   281: 00019B   9520  com tmp2       ; 10100011
+   282: 00019C   2312  and tmp1, tmp2 ; 00000001
+   283: 00019D   2B01  or tmp, tmp1
+   284: 00019E   9301  st Z+, tmp
+   285: 00019F   9319  st Y+, tmp1
+   286: 0001A0   953A  dec tmp3
+   287: 0001A1   F7B1  brne Lamp_ReapplyOnLoop
+   288: 
+   289: ; Reapply Off
+   290:     LDIRamAddrZ LampState
+   291:     LDIRamAddrY LampStateMaskOff
+   292: 0001A6   E038  ldi tmp3, LampBytes
+   293: Lamp_ReapplyOffLoop:
+   294: 0001A7   8100  ld tmp, Z      ; 01011100
+   295: 0001A8   8118  ld tmp1, Y     ; 01000001
+   296: 0001A9   2310  and tmp1, tmp  ; 01000000
+   297: 0001AA   9510  com tmp1
+   298: 0001AB   2301  and tmp, tmp1
+   299: 0001AC   9510  com tmp1
+   300: 0001AD   9301  st Z+, tmp
+   301: 0001AE   9319  st Y+, tmp1
+   302: 0001AF   953A  dec tmp3
+   303: 0001B0   F7B1  brne Lamp_ReapplyOffLoop
+   304: 0001B1   9508  ret
+   305: ;-------------------------------------------------------
+   306: Lamp_CopyZToY:
+   307: 0001B2   E018  ldi tmp1, LampBytes
+   308: Lamp_CopyZToYLoop:
+   309: 0001B3   9101  ld tmp, Z+
+   310: 0001B4   9309  st Y+, tmp
+   311: 0001B5   951A  dec tmp1
+   312: 0001B6   F7E1  brne Lamp_CopyZToYLoop
+   313: 0001B7   9508  ret
+   314: 
+  Continuing file main.asm
+   207: .include "inputs.asm-inc"
+  Including file inputs.asm-inc
+     1: InputsPortTable:
+     2:     .db 1 << 5, IOBASE + DDRD, IOBASE + PortD, IOBASE + PinD  ; 0
+        0001B8 3120 3032
+     3:     .db 1 << 0, IOBASE + DDRB, IOBASE + PortB, IOBASE + PinB  ; 1
+        0001BA 3701 3638
+     4:     .db 1 << 1, IOBASE + DDRB, IOBASE + PortB, IOBASE + PinB  ; 2
+        0001BC 3702 3638
+     5:     .db 1 << 4, IOBASE + DDRD, IOBASE + PortD, IOBASE + PinD  ; 3
+        0001BE 3110 3032
+     6:     .db 1 << 2, IOBASE + DDRD, IOBASE + PortD, IOBASE + PinD  ; 4
+        0001C0 3104 3032
+     7:     .db 1 << 2, IOBASE + DDRB, IOBASE + PortB, IOBASE + PinB  ; 5
+        0001C2 3704 3638
+     8:     .db 1 << 0, IOBASE + DDRA, IOBASE + PortA, IOBASE + PinA  ; 6
+        0001C4 3A01 393B
+     9:     .db 1 << 1, IOBASE + DDRA, IOBASE + PortA, IOBASE + PinA  ; 7
+        0001C6 3A02 393B
+    10:     .db 0, 0
+        0001C8 0000
+    11: 
+    12: ;------------------------------------
+    13: Inputs_Init:
+    14: 0001C9   27BB  clr xH
+    15:     LDIProgMemAddrZ InputsPortTable
+    16: 
+    17: Inputs_Init_Loop:
+    18: 0001CC   9115  lpm tmp1, Z+   ; Bit
+    19: 0001CD   2311  tst tmp1
+    20: 0001CE   F061  breq Inputs_Init_LoopEnd
+    21: 0001CF   2F21  mov tmp2, tmp1
+    22: 0001D0   9520  com tmp2       ; Mask
+    23: 0001D1   91A5  lpm xL, Z+     ; DD
+    24: 
+    25: 0001D2   910C  ld tmp, X      ; Read DD
+    26: 0001D3   2302  and tmp, tmp2  ; Input!
+    27: 0001D4   930C  st X, tmp      ; Write DD
+    28: 
+    29: 
+    30: 0001D5   91A5  lpm xL, Z+     ; Port
+    31: 0001D6   910C  ld tmp, X      ; Read Port
+    32:     ;! and tmp, tmp2  ;
+    33: 0001D7   2B01  or tmp, tmp1   ; PullUp
+    34: 0001D8   930C  st X, tmp
+    35: 0001D9   9631  adiw zL, 1     ; Skip Pin
+    36: 0001DA   CFF1  rjmp Inputs_Init_Loop
+    37: 
+    38: Inputs_Init_LoopEnd:
+    39: 
+    40:     LDIRamAddrZ InputStates
+    41: 0001DD   E018  ldi tmp1, InputCount * InputStateRecordLen
+    42: 0001DE   2700  clr tmp
+    43: Inputs_Init_Loop2:
+    44: 0001DF   9301  st Z+, tmp
+    45: 0001E0   951A  dec tmp1
+    46: 0001E1   F7E9  brne Inputs_Init_Loop2
+    47: 
+    48: 0001E2   98B9  cbi DDRB, 1  ; input
+    49: 0001E3   9508  ret
+    50: 
+    51: ;------------------------------------
+    52: Inputs_Poll:
+    53:     LDIProgMemAddrZ InputsPortTable
+    54:     LDIRamAddrY InputStates
+    55: 
+    56: 0001E8   2722  clr tmp2       ; input NR
+    57: Inputs_Poll_Loop:
+    58: 0001E9   9115  lpm tmp1, Z+   ; bit
+    59: 0001EA   2311  tst tmp1
+    60: 0001EB   F189  breq Inputs_Poll_LoopEnd
+    61: 0001EC   91A5  lpm xL, Z+     ; DD - ignore
+    62: 0001ED   91A5  lpm xL, Z+     ; Port - ignore
+    63: 0001EE   91A5  lpm xL, Z+     ; Pin
+    64: 0001EF   93EF  push zL
+    65: 0001F0   93FF  push zH
+    66: 0001F1   27EE  clr zL
+    67: 0001F2   27FF  clr zH
+    68: 
+    69: 0001F3   27BB  clr xH
+    70: 0001F4   910C  ld tmp, X      ; read pin
+    71: 
+    72: 0001F5   2301  and tmp, tmp1  ; get bit
+    73: 0001F6   8108  ldd tmp, Y + InputState_Disp_T1
+    74: 0001F7   F051  breq Inputs_Poll_Loop_Pressed
+    75: ;Released!
+    76: 0001F8   3005  cpi tmp, ShortPress
+    77: 0001F9   F030  brcs Inputs_Poll_Loop_ReleasedNext ; Was pressed for too short
+    78: 0001FA   3302  cpi tmp, LongPress
+    79:     LDIConfigAddrZ LongReleaseConfig
+    80: 0001FD   F410  brcc Inputs_Poll_Loop_ReleasedLong
+    81:     LDIConfigAddrZ ShortReleaseConfig
+    82: Inputs_Poll_Loop_ReleasedLong:
+    83: Inputs_Poll_Loop_ReleasedNext:
+    84: 000200   2700  clr tmp
+    85: 000201   C00B  rjmp Inputs_Poll_Loop_Next
+    86: 
+    87: Inputs_Poll_Loop_Pressed:
+    88: ; Pressed
+    89: 000202   3F0F  cpi tmp, 255
+    90: 000203   F049  breq Inputs_Poll_Loop_Next ; Pressed for too long
+    91: 000204   9503  inc tmp
+    92: 000205   3005  cpi tmp, ShortPress
+    93: 000206   F411  brne Inputs_Poll_Loop_NotShort
+    94:     LDIConfigAddrZ ShortPressConfig
+    95: Inputs_Poll_Loop_NotShort:
+    96: 000209   3302  cpi tmp, LongPress
+    97: 00020A   F411  brne Inputs_Poll_Loop_Next
+    98:     LDIConfigAddrZ LongPressConfig
+    99: Inputs_Poll_Loop_Next:
+   100: 00020D   8308  std Y + InputState_Disp_T1, tmp
+   101: 00020E   2F0E  mov tmp, zL
+   102: 00020F   2B0F  or tmp, zH
+   103: 000210   F039  breq Inputs_Poll_Loop_Next_NotCall
+   104: 
+   105: 000211   93DF  push yH
+   106: 000212   93CF  push yL
+   107: 000213   932F  push tmp2
+   108: 000214   D009  rcall Inputs_ProcessAction
+   109: 000215   912F  pop tmp2
+   110: 000216   91CF  pop yL
+   111: 000217   91DF  pop yH
+   112: 
+   113: Inputs_Poll_Loop_Next_NotCall:
+   114: 
+   115: 000218   91FF  pop zH
+   116: 000219   91EF  pop zL
+   117: 00021A   9621  adiw yL, InputStateRecordLen
+   118: 00021B   9523  inc tmp2
+   119: 00021C   CFCC  rjmp Inputs_Poll_Loop
+   120: Inputs_Poll_LoopEnd:
+   121: 00021D   9508  ret
+   122: ;------------------------------------
+   123: Inputs_ProcessAction:
+   124: ; IN: tmp2 - input id
+   125: ;  Z - EE address of actions table
+   126: 00021E   D011  rcall Config_ReadByte_FromZPlus
+   127: 00021F   3F0F  cpi tmp, 0xFF
+   128: 000220   F071  breq Inputs_ProcessAction_Exit
+   129: 000221   1702  cp tmp, tmp2
+   130: 000222   F451  brne Inputs_ProcessAction_SkipRecord
+   131: 000223   932F  push tmp2
+   132: 000224   D00B  rcall Config_ReadByte_FromZPlus
+   133: 000225   2F10  mov tmp1, tmp
+   134: 000226   D009  rcall Config_ReadByte_FromZPlus
+   135: 000227   2F20  mov tmp2, tmp
+   136: 000228   D007  rcall Config_ReadByte_FromZPlus
+   137: 000229   2F30  mov tmp3, tmp
+   138: 00022A   DED6  rcall Lamp_ApplyAction
+   139: 00022B   912F  pop tmp2
+   140: 00022C   CFF1  rjmp Inputs_ProcessAction
+   141: Inputs_ProcessAction_SkipRecord:
+   142: 00022D   9633  adiw zL, 3
+   143: 00022E   CFEF  rjmp Inputs_ProcessAction
+   144: 
+   145: Inputs_ProcessAction_Exit:
+   146: 00022F   9508  ret
+   147: ;------------------------------------
+  Continuing file main.asm
+   208: .include "config-works.asm-inc"
+  Including file config-works.asm-inc
+     1: Config_ReadByte_FromZPlus:
+     2: .if UseEE == 1
+     3: ;     out EEARH,xH  Not for tiny2313!
+     4:      out EEARL,zL
+     5:      sbi EECR,EERE
+     6:      in tmp,EEDR
+     7:      adiw zL, 1
+     8:      ret
+     9: .else
+    10: 000230   9105  lpm tmp, Z+
+    11: 000231   9508  ret
+    12: .endif
+    13: 
+  Continuing file main.asm
+   209: .include "link_l2.asm-inc"
+  Including file link_l2.asm-inc
+     1: ; Pause consists of 100 bits.
+     2: ; One bit is CPU_Freq / Usart_Freq cycles
+     3: .equ LinkPauseCycles = 100 * FREQ_MHZ * 1000000 / RS485_BaudRate
+     4: .equ LinkPauseLoops = LinkPauseCycles / 6 ; length of one loop
+     5: 
+     6: 
+     7: ; Wire byte encoding:
+     8: ;  0xFH0L - first byte (HighLow nibbles)
+     9: ;  0x0H0L - other bytes
+    10: ;
+    11: 
+    12: ;----------------------------------------------------------------------------------
+    13: ;----------------------------------------------------------------------------------
+    14: ;--------------------------------------------------------------------
+    15: L2_SendNoCRC:
+    16: 000232   9854  cbi UCSRB, RXEN
+    17: 000233   9A96  sbi Port_RS485DIR, BIT_RS485DIR     ; RS485 - Out
+    18: 000234   9A5E  sbi UCSRA, TXC
+    19: 000235   B90C  out UDR, tmp
+    20: L2_SendWait:
+    21: 000236   9B5E  sbis UCSRA, TXC
+    22: 000237   CFFE  rjmp L2_SendWait
+    23: 000238   9896  cbi Port_RS485DIR, BIT_RS485DIR     ; RS485 - In
+    24: 000239   9A54  sbi UCSRB, RXEN
+    25: 00023A   9508  ret
+    26: ;--------------------------------------------------------------------
+    27: L2_SendFirstByte:
+    28: 00023B   EFAF  ser xL
+    29: 00023C   EFBF  ser xH
+    30: 00023D   D04C  rcall L2_UpdateCRC
+    31: 00023E   930F  push tmp
+    32: 00023F   9502  swap tmp
+    33: 000240   700F  andi tmp, 0x0F
+    34: 000241   6F00  ori tmp, 0xF0
+    35: 000242   DFEF  rcall L2_SendNoCRC
+    36: 000243   910F  pop tmp
+    37: 000244   700F  andi tmp, 0x0F
+    38: 000245   CFEC  rjmp L2_SendNoCRC
+    39: ;--------------------------------------------------------------------
+    40: L2_SendNotFirstByte:
+    41: 000246   D043  rcall L2_UpdateCRC
+    42: L2_SendNotFirstByteNoCRC:
+    43: 000247   930F  push tmp
+    44: 000248   9502  swap tmp
+    45: 000249   700F  andi tmp, 0x0F
+    46: 00024A   DFE7  rcall L2_SendNoCRC
+    47: 00024B   910F  pop tmp
+    48: 00024C   700F  andi tmp, 0x0F
+    49: 00024D   CFE4  rjmp L2_SendNoCRC
+    50: ;--------------------------------------------------------------------
+    51: L2_SendCRC:
+    52: ; CRC bytes are swapped
+    53: 00024E   2F0A  mov tmp, xL
+    54: 00024F   DFF7  rcall L2_SendNotFirstByteNoCRC
+    55: 000250   2F0B  mov tmp, xH
+    56: 000251   CFF5  rjmp L2_SendNotFirstByteNoCRC
+    57: ;--------------------------------------------------------------------
+    58: 
+    59: L2_RecvByteComplex:
+    60: ; in: tmp1 = F0 - expect first, 00 - expect not first
+    61: ; ret: Z = ok, tmp - data
+    62: ; NZ - timeout / decode error
+    63: 000252   931F  push tmp1
+    64: 000253   D025  rcall L2_RecvNoCrc
+    65: 000254   911F  pop tmp1
+    66: 000255   F481  brne L2_RecvByteComplex_Exit
+    67: 000256   930F  push tmp
+    68: 000257   7F00  andi tmp, 0xF0
+    69: 000258   1701  cp tmp, tmp1
+    70: 000259   911F  pop tmp1
+    71: 00025A   F459  brne L2_RecvByteComplex_Exit
+    72: 
+    73: 00025B   701F  andi tmp1, 0x0F
+    74: 00025C   9512  swap tmp1
+    75: 
+    76: 00025D   D01B  rcall L2_RecvNoCrc
+    77: 00025E   F439  brne L2_RecvByteComplex_Exit
+    78: 00025F   930F  push tmp
+    79: 000260   7F00  andi tmp, 0xF0
+    80: 000261   910F  pop tmp
+    81: 000262   F419  brne L2_RecvByteComplex_Exit
+    82: 000263   700F  andi tmp, 0x0F
+    83: 000264   2B01  or tmp, tmp1
+    84: 000265   9418  sez
+    85: L2_RecvByteComplex_Exit:
+    86: 000266   9508  ret
+    87: ;--------------------------------------------------------------------
+    88: ; ret: Z = ok, tmp - data
+    89: ; NZ - timeout / decode error
+    90: L2_RecvFirstByte:
+    91: 000267   EFAF  ser xL
+    92: 000268   EFBF  ser xH
+    93: 000269   931F  push tmp1
+    94: 00026A   EF10  ldi tmp1, 0xF0
+    95: 00026B   DFE6  rcall L2_RecvByteComplex
+    96: 00026C   911F  pop tmp1
+    97: 00026D   F411  brne L2_RecvFirstByte_Exit
+    98: 00026E   D01B  rcall L2_UpdateCRC
+    99: 00026F   9418  sez
+   100: L2_RecvFirstByte_Exit:
+   101: 000270   9508  ret
+   102: ;--------------------------------------------------------------------
+   103: ; ret: Z = ok, tmp - data
+   104: ; NZ - timeout / decode error
+   105: L2_RecvNotFirstByte:
+   106: 000271   931F  push tmp1
+   107: 000272   E010  ldi tmp1, 0x00
+   108: 000273   DFDE  rcall L2_RecvByteComplex
+   109: 000274   911F  pop tmp1
+   110: 000275   F411  brne L2_RecvNotFirstByte_Exit
+   111: 000276   D013  rcall L2_UpdateCRC
+   112: 000277   9418  sez
+   113: L2_RecvNotFirstByte_Exit:
+   114: 000278   9508  ret
+   115: ;--------------------------------------------------------------------
+   116: L2_RecvNoCrc:
+   117: ; ret: Z = ok, tmp - data
+   118: ; NZ - timeout
+   119: 000279   93EF  push zL
+   120: 00027A   93FF  push zH
+   121: 
+   122:     LDIWZ LinkPauseLoops
+   123: L2_Recv_Wait:
+   124: 00027D   995F  sbic UCSRA, RXC   ; 1 + 1
+   125: 00027E   C006  rjmp L2_Recv_Recv ; 0
+   126: 00027F   9731  sbiw zL, 1        ; 2
+   127: 000280   F7E1  brne L2_Recv_Wait ; 2
+   128: 000281   91FF  pop zH
+   129: 000282   91EF  pop zL
+   130: 000283   9498  clz
+   131: 000284   9508  ret
+   132: 
+   133: L2_Recv_Recv:
+   134: 000285   B10C  in tmp, UDR
+   135: 000286   91FF  pop zH
+   136: 000287   91EF  pop zL
+   137: 000288   9418  sez
+   138: 000289   9508  ret
+   139: ;--------------------------------------------------------------------
+   140: L2_UpdateCRC:
+   141: 00028A   930F  push tmp
+   142: 00028B   931F  push tmp1
+   143: 00028C   932F  push tmp2
+   144: 00028D   EA10  ldi tmp1, 0xA0
+   145: 00028E   E021  ldi tmp2, 0x01
+   146: 00028F   27A0  eor xL, tmp
+   147: 000290   E008  ldi tmp, 8
+   148: L2_UpdateCRC_BitLoop:
+   149: 000291   9488  clc
+   150: 000292   95B7  ror xH
+   151: 000293   95A7  ror xL
+   152: 000294   F410  brcc L2_UpdateCRC_Handle1
+   153: 000295   27B1  eor xH, tmp1
+   154: 000296   27A2  eor xL, tmp2
+   155: L2_UpdateCRC_Handle1:
+   156: 000297   950A  dec tmp
+   157: 000298   F7C1  brne L2_UpdateCRC_BitLoop
+   158: 000299   912F  pop tmp2
+   159: 00029A   911F  pop tmp1
+   160: 00029B   910F  pop tmp
+   161: 00029C   9508  ret
+   162: ;--------------------------------------------------------------------
+   163: L2_RecvCRC:
+   164: 00029D   2711  clr tmp1
+   165: 00029E   DFB3  rcall L2_RecvByteComplex
+   166: 00029F   F441  brne L2_RecvCRC_Exit
+   167: 
+   168: 0002A0   930F  push tmp
+   169: 0002A1   2711  clr tmp1
+   170: 0002A2   DFAF  rcall L2_RecvByteComplex
+   171: 0002A3   911F  pop tmp1
+   172: 0002A4   F419  brne L2_RecvCRC_Exit
+   173: 
+   174: ; Note that X holds swapped CRC
+   175: 0002A5   170B  cp tmp, xH
+   176: 0002A6   F409  brne L2_RecvCRC_Exit
+   177: 0002A7   171A  cp tmp1, xL
+   178: L2_RecvCRC_Exit:
+   179: 0002A8   9508  ret
+   180: ;----------------------------------------------------------------------------------
+   181: 
+   182: 
+   183: 
+  Continuing file main.asm
+   210: 
+   211: .if ConfigId == ConfigId_Master
+   212: .include "link_l7_master.asm-inc"
+   213: .else
+   214: .include "link_l7_slave.asm-inc"
+  Including file link_l7_slave.asm-inc
+     1: ; Packet format:
+     2: ; Input
+     3: ; 0  : 0xAB
+     4: ; 1  : DeviceID == ConfigID
+     5: ; 2  : LampStateKnown (from master)
+     6: ; 3-10: LampState (64 bits)
+     7: ; 11-12: CRC
+     8: ;
+     9: ; Output:
+    10: ; 0  : 0xCD
+    11: ; 1  : DeviceID == ConfigID
+    12: ; 2  : LampStateKnown (from slave)
+    13: ; 3-10: LampState
+    14: ; 11-12: CRC
+    15: 
+    16: LinkLoop:
+    17: 0002A9   9478  sei
+    18: 
+    19: 0002AA   DFBC  rcall L2_RecvFirstByte
+    20: 0002AB   F7E9  brne LinkLoop
+    21: 0002AC   3A0B  cpi tmp, 0xAB
+    22: 0002AD   F7D9  brne LinkLoop
+    23: 
+    24: 
+    25: 0002AE   DFC2  rcall L2_RecvNotFirstByte ; device id
+    26: 0002AF   F7C9  brne LinkLoop
+    27: 
+    28: 0002B0   3001  cpi tmp, ConfigId ; не по нашу душу
+    29: 0002B1   F7B9  brne LinkLoop
+    30: 
+    31: 
+    32: 0002B2   DFBE  rcall L2_RecvNotFirstByte ; LampStateKnown
+    33: 0002B3   F7A9  brne LinkLoop
+    34: 0002B4   9300  sts LampStateKnownExt, tmp
+        0002B5   0094
+    35: 
+    36:     LDIRamAddrZ LampStateExt
+    37: 0002B8   E018  ldi tmp1, LampBytes
+    38: LinkLoop_ReadLampBytes:
+    39: 0002B9   DFB7  rcall L2_RecvNotFirstByte
+    40: 0002BA   F771  brne LinkLoop
+    41: 0002BB   9301  st Z+, tmp
+    42: 0002BC   951A  dec tmp1
+    43: 0002BD   F7D9  brne LinkLoop_ReadLampBytes
+    44: 
+    45: 0002BE   DFDE  rcall L2_RecvCRC
+    46: 0002BF   F749  brne LinkLoop
+    47: 
+    48: ;    rcall WAIT_1_Milli
+    49: 
+    50: 0002C0   94F8  cli
+    51: 0002C1   D014  rcall Link_ProcessSlaveData
+    52: 0002C2   EF0F  ser tmp
+    53: 0002C3   9300  sts Communicated, tmp
+        0002C4   0093
+    54: 0002C5   9478  sei
+    55: 
+    56: 0002C6   EC0D  ldi tmp, 0xCD
+    57: 0002C7   DF73  rcall L2_SendFirstByte
+    58: 
+    59: 0002C8   E001  ldi tmp, ConfigId
+    60: 0002C9   DF7C  rcall L2_SendNotFirstByte
+    61: 0002CA   9100  lds tmp, LampStateKnown
+        0002CB   0060
+    62: 0002CC   DF79  rcall L2_SendNotFirstByte
+    63: 
+    64:     LDIRamAddrZ LampState
+    65: 0002CF   E018  ldi tmp1, LampBytes
+    66: LinkLoop_SendLampBytes:
+    67: 0002D0   9101  ld tmp, Z+
+    68: 0002D1   DF74  rcall L2_SendNotFirstByte
+    69: 0002D2   951A  dec tmp1
+    70: 0002D3   F7E1  brne LinkLoop_SendLampBytes
+    71: 
+    72: 0002D4   DF79  rcall L2_SendCRC
+    73: 
+    74: 0002D5   CFD3  rjmp LinkLoop
+    75: 
+    76: ;==========================================================================
+    77: Link_ProcessSlaveData:
+    78: 0002D6   9100  lds tmp, LampStateKnown
+        0002D7   0060
+    79: 0002D8   9110  lds tmp1, LampStateKnownExt
+        0002D9   0094
+    80: 0002DA   1710  cp tmp1, tmp
+    81: 0002DB   F038  brcs Link_ProcessSlaveData_SkipLampDataUse; LampStateKnownExt < LampStateKnown
+    82: 0002DC   9310  sts LampStateKnown, tmp1
+        0002DD   0060
+    83:     LDIRamAddrZ LampStateExt
+    84:     LDIRamAddrY LampState
+    85: 0002E2   DECF  rcall Lamp_CopyZToY
+    86: Link_ProcessSlaveData_SkipLampDataUse:
+    87: 0002E3   CEAF  rjmp Lamp_ReapplyOnOff
+    88: ;==========================================================================
+    89: 
+    90: 
+    91: 
+    92: 
+    93: 
+    94: 
+    95: 
+    96: 
+    97: 
+    98: 
+    99: 
+   100: 
+   101: 
+   102: 
+  Continuing file main.asm
+   215: .endif
+   216: 
+   217: .if UseRadio == 1
+   218: .include "radio.asm-inc"
+  Including file radio.asm-inc
+     1: .equ Radio_Tick_Period_Microsec = 270
+     2: .equ Radio_Tick_Period_Cycles = FREQ_MHZ * Radio_Tick_Period_Microsec ; Because at 1 MHZ  one cycle = 1 microsec
+     3: 
+     4: Radio_Init:
+     5: 0002E4   9A8B  sbi DD_Radio, BIT_Radio
+     6: 0002E5   9893  cbi Port_Radio, BIT_Radio
+     7: 0002E6   2700  clr tmp
+     8: 0002E7   9300  sts RadioSendPosition, tmp
+        0002E8   009E
+     9: 0002E9   9300  sts RadioSendPosition+1, tmp
+        0002EA   009F
+    10: 0002EB   9300  sts RadioSendBytesLeft, tmp
+        0002EC   00A0
+    11: 0002ED   9300  sts RadioSendMask, tmp
+        0002EE   009D
+    12: 0002EF   9300  sts RadioSendLampId, tmp
+        0002F0   00A1
+    13: 0002F1   9300  sts RadioSendRepeatsLeft, tmp
+        0002F2   00A2
+    14: 
+    15: ; Timer1 Config
+    16: 0002F3   E008  ldi tmp, High(Radio_Tick_Period_Cycles)
+    17: 0002F4   E710  ldi tmp1, Low(Radio_Tick_Period_Cycles)
+    18: 0002F5   BD0B  out OCR1AH, tmp
+    19: 0002F6   BD1A  out OCR1AL, tmp1
+    20: 
+    21: 0002F7   E000  ldi tmp, 0b00000000  ; CTC mode
+    22: 0002F8   BD0F  out TCCR1A, tmp
+    23: 0002F9   E009  ldi tmp, 0b00001001  ; CTC mode, ClockSource =  Fclk
+    24: 0002FA   BD0E  out TCCR1B, tmp
+    25: 
+    26: 0002FB   9508  ret
+    27: 
+    28: ;------------------------------------------------------
+    29: Radio_ProcessInputs:
+    30: 0002FC   9100  lds tmp, RadioSendMask
+        0002FD   009D
+    31: 0002FE   2300  tst tmp
+    32: 0002FF   F4D9  brne Radio_ProcessInputs_Exit ; что то шлём, значит делать нечего
+    33: 000300   9120  lds tmp2, RadioSendLampId
+        000301   00A1
+    34: 000302   2322  tst tmp2
+    35: 000303   F071  breq Radio_ProcessInputs_CheckNewSend
+    36:     ; Закончили одну посылку по какой-то лампе, но может надо повторить
+    37: 000304   9100  lds tmp, RadioSendRepeatsLeft
+        000305   00A2
+    38: 000306   2300  tst tmp
+    39: 000307   F029  breq Radio_ProcessInputs_LampTurnOff
+    40: 000308   950A  dec tmp
+    41: 000309   9300  sts RadioSendRepeatsLeft, tmp
+        00030A   00A2
+    42: 00030B   2F02  mov tmp, tmp2
+    43: 00030C   F4A1  brne Radio_ProcessInputs_PrepareSend
+    44: 
+    45: Radio_ProcessInputs_LampTurnOff:
+    46: 00030D   E011  ldi tmp1, LampAction_Off
+    47: 00030E   DDF2  rcall Lamp_ApplyAction
+    48: 00030F   2700  clr tmp
+    49: 000310   9300  sts RadioSendLampId, tmp
+        000311   00A1
+    50: Radio_ProcessInputs_CheckNewSend:
+    51:     ; yes, hardcode!
+    52: 000312   E204  ldi tmp, Lamp_RadioProjectorScreenUp
+    53: 000313   D008  rcall Radio_CheckLamp
+    54: 000314   F461  brne Radio_ProcessInputs_PrepareSend
+    55: 
+    56: 000315   E205  ldi tmp, Lamp_RadioProjectorScreenDown
+    57: 000316   D005  rcall Radio_CheckLamp
+    58: 000317   F449  brne Radio_ProcessInputs_PrepareSend
+    59: 
+    60: 000318   E206  ldi tmp, Lamp_RadioProjectorScreenStop
+    61: 000319   D002  rcall Radio_CheckLamp
+    62: 00031A   F431  brne Radio_ProcessInputs_PrepareSend
+    63: Radio_ProcessInputs_Exit:
+    64: 00031B   9508  ret
+    65: 
+    66: Radio_CheckLamp:
+    67: 00031C   930F  push tmp
+    68: 00031D   DDD1  rcall Lamp_GetStateSafe
+    69: 00031E   2300  tst tmp
+    70: 00031F   910F  pop tmp
+    71: 000320   9508  ret
+    72: 
+    73: Radio_ProcessInputs_PrepareSend:
+    74: 000321   9300  sts RadioSendLampId, tmp
+        000322   00A1
+    75: 000323   3204  cpi tmp, Lamp_RadioProjectorScreenUp
+    76:     LDIProgMemAddrZ RadioData_ProjectorScreenUp
+    77: 000326   F031  breq Radio_ProcessInputs_PrepareSend_Continue
+    78: 000327   3205  cpi tmp, Lamp_RadioProjectorScreenDown
+    79:     LDIProgMemAddrZ RadioData_ProjectorScreenDown
+    80: 00032A   F011  breq Radio_ProcessInputs_PrepareSend_Continue
+    81:     LDIProgMemAddrZ RadioData_ProjectorScreenStop
+    82: Radio_ProcessInputs_PrepareSend_Continue:
+    83: 
+    84: 00032D   9100  lds tmp, RadioSendRepeatsLeft
+        00032E   00A2
+    85: 00032F   2300  tst tmp
+    86: 000330   F419  brne Radio_ProcessInputs_PrepareSend_RepeatsOK
+    87: 000331   E100  ldi tmp, RadioData_RepeatCount
+    88: 000332   9300  sts RadioSendRepeatsLeft, tmp
+        000333   00A2
+    89: Radio_ProcessInputs_PrepareSend_RepeatsOK:
+    90: 000334   E200  ldi tmp, RadioData_Len
+    91: 000335   C000  rjmp Radio_StartSend
+    92: 
+    93: ;------------------------------------------------------
+    94: 
+    95: Radio_StartSend:
+    96: ; input: Z - start position in ROM
+    97: ;        tmp - byte count
+    98: 000336   93E0  sts RadioSendPosition, zL
+        000337   009E
+    99: 000338   93F0  sts RadioSendPosition+1, zH
+        000339   009F
+   100: 00033A   9300  sts RadioSendBytesLeft, tmp
+        00033B   00A0
+   101: 00033C   E800  ldi tmp, 0b10000000
+   102: 00033D   9300  sts RadioSendMask, tmp
+        00033E   009D
+   103: 00033F   B709  in tmp, TIMSK
+   104: 000340   6400  ori tmp, 1 << OCIE1A
+   105: 000341   BF09  out TIMSK, tmp
+   106: 000342   9508  ret
+   107: 
+   108: Radio_Tick:
+   109: 000343   930F  push tmp
+   110: 000344   B70F  in tmp, SREG
+   111: 000345   930F  push tmp
+   112: 000346   931F  push tmp1
+   113: 000347   93EF  push zL
+   114: 000348   93FF  push zH
+   115: 
+   116: 000349   9110  lds tmp1, RadioSendMask
+        00034A   009D
+   117: 00034B   2311  tst tmp1
+   118: 00034C   F0F9  breq Radio_TickExit ; safety check
+   119: 
+   120: 00034D   91E0  lds zL, RadioSendPosition
+        00034E   009E
+   121: 00034F   91F0  lds zH, RadioSendPosition+1
+        000350   009F
+   122: 000351   9110  lds tmp1, RadioSendMask
+        000352   009D
+   123: 000353   9105  lpm tmp, Z+
+   124: 000354   2301  and tmp, tmp1
+   125: 000355   F011  breq Radio_Tick_SendZero
+   126: 000356   9A93  sbi Port_Radio, BIT_Radio
+   127: 000357   C001  rjmp Radio_Tick_Next
+   128: Radio_Tick_SendZero:
+   129: 000358   9893  cbi Port_Radio, BIT_Radio
+   130: Radio_Tick_Next:
+   131: 000359   9516  lsr tmp1
+   132: 00035A   F479  brne Radio_Tick_NextSameByte
+   133: 00035B   E810  ldi tmp1, 0b10000000
+   134:     ; Z is already incremented
+   135: 00035C   93E0  sts RadioSendPosition, zL
+        00035D   009E
+   136: 00035E   93F0  sts RadioSendPosition+1, zH
+        00035F   009F
+   137: 000360   9100  lds tmp, RadioSendBytesLeft
+        000361   00A0
+   138: 000362   950A  dec tmp
+   139: 000363   9300  sts RadioSendBytesLeft, tmp
+        000364   00A0
+   140: 000365   F421  brne Radio_Tick_NextSameByte
+   141:     ; disable interrupts
+   142: 000366   B709  in tmp, TIMSK
+   143: 000367   7B0F  andi tmp, 255 - (1 << OCIE1A)
+   144: 000368   BF09  out TIMSK, tmp
+   145: 
+   146: 000369   2711  clr tmp1 ; just in case
+   147: 
+   148: Radio_Tick_NextSameByte:
+   149: 00036A   9310  sts RadioSendMask, tmp1
+        00036B   009D
+   150: 
+   151: Radio_TickExit:
+   152: 00036C   91FF  pop zH
+   153: 00036D   91EF  pop zL
+   154: 00036E   911F  pop tmp1
+   155: 00036F   910F  pop tmp
+   156: 000370   BF0F  out SREG, tmp
+   157: 000371   910F  pop tmp
+   158: 000372   9518  reti
+   159: 
+   160: 
+  Continuing file main.asm
+   219: .endif
+   220: .include "config-vars.asm-inc"
+  Including file config-vars.asm-inc
+     1: ;-----------------------------------------------------------------
+     2: ;Config data - stored in EE or Flash depending on UseEE
+     3: ;-----------------------------------------------------------------
+     4: .if UseEE == 1
+     5: .ESEG
+     6: .macro ConfigORG
+     7: .ORG @0
+     8: .endmacro
+     9: 
+    10: .else
+    11: ;.CSEG
+    12: .macro ConfigORG
+    13: ; nop
+    14: .endmacro
+    15: .endif
+    16: 
+    17: 
+    18: .equ Org_RelayToLamp        = 0x000
+    19: .equ Org_ShortPressConfig   = 0x010
+    20: .equ Org_ShortReleaseConfig = 0x030
+    21: .equ Org_LongPressConfig    = 0x050
+    22: .equ Org_LongReleaseConfig  = 0x070
+    23: 
+    24: ;-----------------------------------------------------------------
+    25: ; Реле перепутаны напрочь :-)
+    26: ; Порядок в config (бит в Relay_DirectWrite ) | Номер контакта на плате, слева направо: 012345678, 8 - общий
+    27: ; 0 | 3
+    28: ; 1 | 1
+    29: ; 2 | 5
+    30: ; 3 | 7
+    31: ; 4 | 6
+    32: ; 5 | 4
+    33: ; 6 | 2
+    34: ; 7 | 0
+    35: 
+    36: ; RelayX = Логическая нумерация, соответствует контакту на плате
+    37: .equ Relay0 = 1 << 7
+    38: .equ Relay1 = 1 << 1
+    39: .equ Relay2 = 1 << 6
+    40: .equ Relay3 = 1 << 0
+    41: .equ Relay4 = 1 << 5
+    42: .equ Relay5 = 1 << 2
+    43: .equ Relay6 = 1 << 4
+    44: .equ Relay7 = 1 << 3
+    45: ;-----------------------------------------------------------------
+    46: ; Всего 64 лампочки MAX
+    47: ; Конфиг каждого реле:
+    48: ; Номер лампочки, FF если реле не используется
+    49: ;
+    50: ;
+    51: ;   Нажали -> сразу ShortPress
+    52: ;   Отпустили быстро -> ShortRelease
+    53: ;   Держим дольше - LongPress
+    54: ;   Отпустили -> LongRelease
+    55: 
+    56: .macro LOffAll
+    57:       .db @0, LampAction_OffAll, 0, 0
+    58: .endmacro
+    59: 
+    60: .macro LOff
+    61:       .db @0, LampAction_Off, @1, 0
+    62: .endmacro
+    63: 
+    64: .macro LOn
+    65:       .db @0, LampAction_On, @1, 0
+    66: .endmacro
+    67: 
+    68: .macro LSw
+    69:       .db @0, LampAction_Switch, @1, 0
+    70: .endmacro
+    71: 
+    72: .macro LCopyFrom
+    73:       .db @0, LampAction_CopyFrom, @1, @2
+    74: .endmacro
+    75: 
+    76: .macro LSetOffTimer
+    77:       .db @0, LampAction_SetOffTimer, @1, @2
+    78: .endmacro
+    79: 
+    80: .macro LCustomAction
+    81:       .db @0, LampAction_Custom, LOW(@1), HIGH(@1)
+    82: .endmacro
+    83: 
+    84: .equ Lamp_Boileroom     = 0
+    85: .equ Lamp_Toilet1       = 1
+    86: .equ Lamp_StairsBra     = 2
+    87: .equ Lamp_Facade        = 3
+    88: .equ Lamp_Living        = 4
+    89: .equ Lamp_Kitchen       = 5
+    90: .equ Lamp_Hallway       = 6  ; Прихожая
+    91: .equ Lamp_Storage       = 7
+    92: .equ Lamp_Hall1         = 8  ; Коридор на 1 этаже
+    93: .equ Lamp_Toilet2       = 9
+    94: .equ Lamp_Sauna         = 10
+    95: .equ Lamp_Bedroom       = 11
+    96: .equ Lamp_Childroom     = 12
+    97: .equ Lamp_Cabinet       = 13 ; реле
+    98: .equ Lamp_Hall2         = 14 ; Коридор на 2 этаже
+    99: .equ Lamp_Canopy1       = 15 ; Навес лампы
+   100: .equ Lamp_Canopy2       = 29 ; Навес гирлянды
+   101: .equ Lamp_Terrace1      = 16 ; терраса лампы
+   102: .equ Lamp_Terrace2      = 17 ; терраса гирлянды
+   103: .equ Lamp_Toilet2Mirror = 18
+   104: .equ Lamp_TowelDrier    = 19 ; Полотенчик
+   105: .equ Lamp_Vent1         = 20
+   106: .equ Lamp_Vent2         = 21
+   107: .equ Lamp_KitchenLight  = 22
+   108: .equ Lamp_LivingFloor   = 23
+   109: .equ Lamp_Toilet1Mirror = 24
+   110: .equ Lamp_BedroomBra1   = 25
+   111: .equ Lamp_BedroomBra2   = 26
+   112: .equ Lamp_ChildroomBra1 = 27
+   113: .equ Lamp_ChildroomBra2 = 28
+   114: .equ Lamp_CabinetLight  = 30
+   115: .equ Lamp_BedroomLight  = 31
+   116: .equ Lamp_ChildroomMirror = 32  ; Реле
+   117: .equ Lamp_BedroomWardrobe = 33  ; Реле - сами лампы шкафа
+   118: ; 34 unused
+   119: .equ Lamp_BedroomWardrobeSens = 35 ; Выключатель (герконы)
+   120: 
+   121: .equ Lamp_RadioProjectorScreenUp = 36
+   122: .equ Lamp_RadioProjectorScreenDown = 37
+   123: .equ Lamp_RadioProjectorScreenStop = 38
+   124: 
+   125: .equ Lamp_CabinetSens = 39 ; Выключатель
+   126: .equ Lamp_ChildroomMirrorSens = 40  ; Выключатель
+   127: .equ Lamp_Toilet2HintOn = 41 ; Подсказывалка, что делать при нажатии - вкл или выкл. Сложнаа
+   128: 
+   129: ;----------------------------------------------------------------------------------------------------------------------------------
+   130: ;----------------------------------------------------------------------------------------------------------------------------------
+   131: .if ConfigId == 1 ; Котельная
+   132: ;ConfigORG  Org_RelayToLamp
+   133: RelayToLamp:
+   134:     .db Relay0, Lamp_Boileroom,
+        000373 0080
+   135:     .db Relay1, Lamp_Toilet1
+        000374 0102
+   136:     ;.db Relay2, Lamp_Terrace1
+   137:     ;.db Relay3, Lamp_Terrace2
+   138:     ;.db Relay4, Lamp_Living,
+   139:     ;.db Relay5, Lamp_Kitchen
+   140:     .db Relay6, Lamp_StairsBra,
+        000375 0210
+   141:     .db Relay7, Lamp_Facade
+        000376 0308
+   142:     .db 0xFF, 0xFF
+        000377 FFFF
+   143: 
+   144: ;ConfigORG Org_ShortPressConfig
+   145: ShortPressConfig:
+   146:     LOn 0, Lamp_Boileroom
+   147:     LSw 1, Lamp_Toilet1
+   148:     LSw 2, Lamp_Hall1 ; у лестницы
+   149:     LSw 7, Lamp_StairsBra
+   150:     .db 0xFF, 0xFF
+        000380 FFFF
+   151: 
+   152: ConfigORG  Org_ShortReleaseConfig
+   153: ShortReleaseConfig:
+   154:     LOff 0, Lamp_Boileroom
+   155:     .db 0xFF, 0xFF
+        000383 FFFF
+   156: 
+   157: 
+   158: ConfigORG  Org_LongPressConfig
+   159: LongPressConfig:
+   160:     .db 0xFF, 0xFF
+        000384 FFFF
+   161: 
+   162: ConfigORG  Org_LongReleaseConfig
+   163: LongReleaseConfig:
+   164:     LOff 0, Lamp_Boileroom
+   165:     .db 0xFF, 0xFF
+        000387 FFFF
+   166: 
+   167: 
+   168: .endif
+   169: 
+   170: ;----------------------------------------------------------------------------------------------------------------------------------
+   171: ;----------------------------------------------------------------------------------------------------------------------------------
+   172: .if ConfigId == 2 ; Кладовка
+   173: 
+   174: .equ Lamp_Hallway_Delay = 200
+   175: 
+   176: ConfigORG  Org_RelayToLamp
+   177: RelayToLamp:
+   178:     .db Relay0, Lamp_Hallway
+   179:     .db Relay1, Lamp_Storage
+   180:     .db Relay2, Lamp_Facade
+   181:     .db Relay3, Lamp_Hall1
+   182:     ; relay4 - NOT installed
+   183:     .db Relay5, Lamp_StairsBra,
+   184:     ; relay 6 - NOT installed
+   185:     .db 0xFF, 0xFF
+   186: 
+   187: 
+   188: ConfigORG  ShortPressConfig
+   189: ShortPressConfig:
+   190:     LSw 2, Lamp_Storage
+   191:     LSw 3, Lamp_Facade
+   192:     LSw 5, Lamp_Hall1
+   193:     LSw 6, Lamp_Hall1
+   194:     .db 0xFF, 0xFF
+   195: 
+   196: ConfigORG  Org_ShortReleaseConfig
+   197: ShortReleaseConfig:
+   198:     LSw 0, Lamp_Hallway
+   199:     LSw 1, Lamp_Hallway
+   200:     LSw 4, Lamp_Canopy1
+   201:     LOn 7, Lamp_Hallway
+   202:     .db 0xFF, 0xFF
+   203: 
+   204: ConfigORG  Org_LongPressConfig
+   205: LongPressConfig:
+   206:     LSw 4, Lamp_Canopy2
+   207:     .db 0xFF, 0xFF
+   208: 
+   209: ConfigORG  Org_LongReleaseConfig
+   210: LongReleaseConfig:
+   211:     .db 0xFF, 0xFF
+   212: 
+   213: 
+   214: .endif
+   215: ;----------------------------------------------------------------------------------------------------------------------------------
+   216: ;----------------------------------------------------------------------------------------------------------------------------------
+   217: .if ConfigId == 3 ; СУ2
+   218: 
+   219: ConfigORG  Org_RelayToLamp
+   220: RelayToLamp:
+   221:     .db Relay0, Lamp_BedroomLight
+   222:     .db Relay1, Lamp_Toilet2
+   223:     .db Relay2, Lamp_Bedroom
+   224:     .db Relay3, Lamp_BedroomBra1
+   225:     .db Relay4, Lamp_BedroomBra2
+   226:     .db Relay5, Lamp_BedroomWardrobe
+   227:     .db Relay5, Lamp_BedroomLight ; tricky "OR"
+   228:     .db Relay6, Lamp_Canopy1
+   229:     .db Relay7, Lamp_Canopy2
+   230:     .db 0xFF, 0xFF
+   231: 
+   232: 
+   233: ConfigORG  ShortPressConfig
+   234: ShortPressConfig:
+   235:     LOn 0, Lamp_TowelDrier
+   236:     LSw 4, Lamp_BedroomBra1
+   237:     LSw 5, Lamp_BedroomBra2
+   238:     LOff 7, Lamp_BedroomWardrobeSens
+   239:     .db 0xFF, 0xFF
+   240: 
+   241: ConfigORG  Org_ShortReleaseConfig
+   242: ShortReleaseConfig:
+   243:     ;LSw 0, Lamp_Toilet2
+   244:     ;LCopyFrom 0, Lamp_Toilet2Mirror, Lamp_Toilet2  ; From Lamp_Toilet2 to Lamp_Toilet2Mirror, like LD A, B
+   245:     LCustomAction 0, CustomAction_SU2Light
+   246:     LSw 1, Lamp_Sauna
+   247:     LSw 2, Lamp_Bedroom
+   248:     LSw 3, Lamp_Bedroom
+   249:     LSw 6, Lamp_Bedroom
+   250:     LOn 7, Lamp_BedroomWardrobeSens
+   251:     LOn 7, Lamp_BedroomWardrobe
+   252:     .db 0xFF, 0xFF
+   253: 
+   254: ConfigORG  Org_LongPressConfig
+   255: LongPressConfig:
+   256:     LSw 0, Lamp_Vent2
+   257:     LSw 1, Lamp_Vent1
+   258:     LSw 2, Lamp_BedroomLight
+   259:     LSw 3, Lamp_BedroomLight
+   260:     LSw 6, Lamp_BedroomLight
+   261:     .db 0xFF, 0xFF
+   262: 
+   263: ConfigORG  Org_LongReleaseConfig
+   264: LongReleaseConfig:
+   265:     LOn 7, Lamp_BedroomWardrobeSens
+   266:     LOn 7, Lamp_BedroomWardrobe
+   267:     .db 0xFF, 0xFF
+   268: 
+   269: CustomAction_SU2Light:
+   270:     ; Если основной свет включен - выключить
+   271:     ldi tmp1, LampAction_Off
+   272:     ldi tmp, Lamp_Toilet2
+   273:     rcall Lamp_GetStateSafe
+   274:     tst tmp
+   275:     brne CustomAction_SU2Light_Off
+   276:     ; Если включен флаг - то будем включать свет вне зависимости от зеркала
+   277:     ldi tmp, Lamp_Toilet2HintOn
+   278:     rcall Lamp_GetStateSafe
+   279:     tst tmp
+   280:     brne CustomAction_SU2Light_On
+   281:     ; Если зеркало включено - то надо выключать свет
+   282:     ldi tmp, Lamp_Toilet2Mirror
+   283:     rcall Lamp_GetStateSafe
+   284:     tst tmp
+   285:     brne CustomAction_SU2Light_Off
+   286: CustomAction_SU2Light_On:
+   287:     ldi tmp1, LampAction_On
+   288: 
+   289: CustomAction_SU2Light_Off:
+   290:     push tmp1
+   291:     ldi tmp, Lamp_Toilet2
+   292:     rcall Lamp_Do_OffOnSwitch
+   293:     pop tmp1
+   294:     ldi tmp, Lamp_Toilet2Mirror
+   295:     rjmp Lamp_Do_OffOnSwitch
+   296: .endif
+   297: ;----------------------------------------------------------------------------------------------------------------------------------
+   298: ;----------------------------------------------------------------------------------------------------------------------------------
+   299: .if ConfigId == 4 ; Гостиная
+   300: ConfigORG  Org_RelayToLamp
+   301: RelayToLamp:
+   302:     .db Relay0, Lamp_Terrace1,
+   303:     .db Relay1, Lamp_Terrace2
+   304:     .db Relay2, Lamp_Living
+   305:     .db Relay3, Lamp_Kitchen
+   306:     .db Relay4, Lamp_KitchenLight
+   307:     .db Relay5, Lamp_Facade
+   308:     .db Relay6, Lamp_LivingFloor
+   309:     .db Relay7, Lamp_KitchenLight
+   310:     .db 0xFF, 0xFF
+   311: 
+   312: 
+   313: ConfigORG  ShortPressConfig
+   314: ShortPressConfig:
+   315:     LOn 0, Lamp_Terrace1
+   316:     LOn 1, Lamp_Terrace2
+   317:     LSw 7, Lamp_KitchenLight
+   318:     .db 0xFF, 0xFF
+   319: 
+   320: ConfigORG  Org_ShortReleaseConfig
+   321: ShortReleaseConfig:
+   322:     LOff 0, Lamp_Terrace1
+   323:     LOff 1, Lamp_Terrace2
+   324:     LSw 2, Lamp_Kitchen
+   325:     LSw 3, Lamp_Living
+   326:     LSw 7, Lamp_KitchenLight
+   327:     .db 0xFF, 0xFF
+   328: 
+   329: ConfigORG  Org_LongPressConfig
+   330: LongPressConfig:
+   331:     LSw 2, Lamp_KitchenLight
+   332:     .db 0xFF, 0xFF
+   333: 
+   334: ConfigORG  Org_LongReleaseConfig
+   335: LongReleaseConfig:
+   336:     LOff 0, Lamp_Terrace1
+   337:     LOff 1, Lamp_Terrace2
+   338:     LSw 7, Lamp_KitchenLight
+   339:     .db 0xFF, 0xFF
+   340: 
+   341: 
+   342: .endif
+   343: ;----------------------------------------------------------------------------------------------------------------------------------
+   344: ;----------------------------------------------------------------------------------------------------------------------------------
+   345: .if ConfigId == 5 ; СУ2-упр
+   346: ConfigORG  Org_RelayToLamp
+   347: RelayToLamp:
+   348:     .db Relay3, Lamp_Toilet2Mirror
+   349:     .db Relay4, Lamp_Sauna
+   350:     .db Relay5, Lamp_Vent1
+   351:     .db Relay6, Lamp_Vent2
+   352:     .db Relay7, Lamp_TowelDrier
+   353:     .db 0xFF, 0xFF
+   354: 
+   355: 
+   356: ConfigORG  ShortPressConfig
+   357: ShortPressConfig:
+   358:      LSw 0, Lamp_Toilet2Mirror
+   359:     .db 0xFF, 0xFF
+   360: 
+   361: ConfigORG  Org_ShortReleaseConfig
+   362: ShortReleaseConfig:
+   363:     LSw 0, Lamp_Toilet2Mirror
+   364:     .db 0xFF, 0xFF
+   365: 
+   366: ConfigORG  Org_LongPressConfig
+   367: LongPressConfig:
+   368:     .db 0xFF, 0xFF
+   369: 
+   370: ConfigORG  Org_LongReleaseConfig
+   371: LongReleaseConfig:
+   372:     LSw 0, Lamp_Toilet2Mirror
+   373:     .db 0xFF, 0xFF
+   374: 
+   375: 
+   376: .endif
+   377: 
+   378: ;----------------------------------------------------------------------------------------------------------------------------------
+   379: ;----------------------------------------------------------------------------------------------------------------------------------
+   380: .if ConfigId == 6 ; Детская
+   381: ConfigORG  Org_RelayToLamp
+   382: RelayToLamp:
+   383:     .db Relay0, Lamp_Cabinet ; Solid relay
+   384:     .db Relay1, Lamp_CabinetLight
+   385:     .db Relay2, Lamp_ChildroomMirror
+   386:     .db Relay3, Lamp_Childroom
+   387:     .db Relay4, Lamp_Hall2
+   388: ;    .db Relay5, Lamp_Childroom ; failed relay
+   389:     .db Relay6, Lamp_ChildroomBra1
+   390:     .db Relay7, Lamp_ChildroomBra2
+   391:     .db 0xFF, 0xFF
+   392: 
+   393: 
+   394: ConfigORG  ShortPressConfig
+   395: ShortPressConfig:
+   396:     LSw 0, Lamp_Hall2
+   397:     LSw 6, Lamp_CabinetLight
+   398:     .db 0xFF, 0xFF
+   399: 
+   400: ConfigORG  Org_ShortReleaseConfig
+   401: ShortReleaseConfig:
+   402:     LSw 1, Lamp_Childroom
+   403:     LSw 2, Lamp_ChildroomBra1
+   404:     LSw 3, Lamp_ChildroomBra2
+   405:     LSw 4, Lamp_StairsBra
+   406:     LSw 5, Lamp_CabinetSens
+   407:     LOn 5, Lamp_Cabinet
+   408:     .db 0xFF, 0xFF
+   409: 
+   410: ConfigORG  Org_LongPressConfig
+   411: LongPressConfig:
+   412:     LSw 1, Lamp_ChildroomMirrorSens
+   413:     LOn 1, Lamp_ChildroomMirror
+   414:     LSw 2, Lamp_Childroom
+   415:     LSw 3, Lamp_Childroom
+   416:     LSw 4, Lamp_Hall1
+   417:     LSw 5, Lamp_CabinetLight
+   418:     .db 0xFF, 0xFF
+   419: 
+   420: ConfigORG  Org_LongReleaseConfig
+   421: LongReleaseConfig:
+   422:     .db 0xFF, 0xFF
+   423: 
+   424: 
+   425: .endif
+   426: ;--------------------------------------------------------------------------------------
+   427: ;--------------------------------------------------------------------------------------
+   428: ;--------------------------------------------------------------------------------------
+   429: ;--------------------------------------------------------------------------------------
+   430: ;--------------------------------------------------------------------------------------
+   431: ;--------------------------------------------------------------------------------------
+   432: .if ConfigId == 100 ; debug
+   433: ;ConfigORG  Org_RelayToLamp
+   434: RelayToLamp:
+   435:     .db Relay0, 0
+   436:     .db Relay1, 1
+   437:     .db Relay2, 2
+   438:     .db Relay3, 3
+   439:     .db Relay4, 4
+   440:     .db Relay5, 5
+   441:     .db Relay6, 6
+   442:     .db Relay7, 7
+   443:     .db 0xFF, 0xFF
+   444: 
+   445: ;ConfigORG Org_ShortPressConfig
+   446: ShortPressConfig:
+   447:     LSw 0, 0
+   448:     LSw 1, 1
+   449:     LSw 2, 2
+   450:     LSw 3, 3
+   451:     LSw 4, 4
+   452:     LSw 5, 5
+   453:     LSw 6, 6
+   454:     LSw 7, 7
+   455:     .db 0xFF, 0xFF
+   456: 
+   457: ConfigORG  Org_ShortReleaseConfig
+   458: ShortReleaseConfig:
+   459:     .db 0xFF, 0xFF
+   460: 
+   461: 
+   462: ConfigORG  Org_LongPressConfig
+   463: LongPressConfig:
+   464:     .db 0xFF, 0xFF
+   465: 
+   466: ConfigORG  Org_LongReleaseConfig
+   467: LongReleaseConfig:
+   468:     .db 0xFF, 0xFF
+   469: 
+   470: 
+   471: .endif
+   472: 
+   473: .if UseRadio == 1
+   474: .equ RadioData_Len = 32
+   475: .equ RadioData_RepeatCount = 16
+   476: RadioData_ProjectorScreenDown:
+   477:     .db 255, 255, 243, 77, 36, 219, 105, 54, 210, 109, 166, 219, 105, 166, 146, 73, 36, 154, 73, 36, 146, 105, 36, 218, 105, 182, 155, 0, 0, 0, 0, 0
+        000388 FFFF 4DF3 DB24 3669
+        00038C 6DD2 DBA6 A669 4992
+        000390 9A24 2449 6992 DA24
+        000394 B669 009B 0000 0000
+   478: 
+   479: RadioData_ProjectorScreenUp:
+   480:     .db 255, 255, 243, 77, 36, 219, 105, 54, 210, 109, 166, 219, 105, 166, 146, 73, 36, 154, 73, 36, 146, 73, 52, 218, 77, 38, 155, 0, 0, 0, 0, 0
+        000398 FFFF 4DF3 DB24 3669
+        00039C 6DD2 DBA6 A669 4992
+        0003A0 9A24 2449 4992 DA34
+        0003A4 264D 009B 0000 0000
+   481: 
+   482: RadioData_ProjectorScreenStop:
+   483:     .db 255, 255, 243, 77, 36, 219, 105, 54, 210, 109, 166, 219, 105, 166, 146, 73, 36, 154, 73, 36, 146, 77, 36, 218, 77, 182, 155, 0, 0, 0, 0, 0
+        0003A8 FFFF 4DF3 DB24 3669
+        0003AC 6DD2 DBA6 A669 4992
+        0003B0 9A24 2449 4D92 DA24
+        0003B4 B64D 009B 0000 0000
+   484: .endif
+  Continuing file main.asm
+   221: .include "vars.asm-inc"
+  Including file vars.asm-inc
+     1: ;-----------------------------------------------------------------
+     2: ;RAM data
+     3: ;-----------------------------------------------------------------
+     4: .DSEG
+     5: .ORG  0x60
+     6: ; SRAM MAP
+     7: 
+     8: LampStateKnown:
+     9:     .byte 1
+    10: LampState:
+    11:     .byte LampBytes
+    12: LampStateMaskOn:
+    13:     .byte LampBytes
+    14: LampStateMaskOff:
+    15:     .byte LampBytes
+    16: 
+    17: LampStateMaster:
+    18:     .byte LampBytes
+    19: 
+    20: LampOffSubtimer:
+    21:     .byte 1
+    22: 
+    23: LampOffTimers:
+    24:     .byte OffTimersBytes ; Each record: (TimerVal, LampId)
+    25: ;-----------------------------------------------------------------
+    26: ; Переменные для кнопки без фиксации
+    27: ; T1 с последнего перехода 0->1
+    28: ; в момент T1 > TShort фиксируем событие "короткое нажатие"
+    29: ; в момент T1 > Tlong  фиксируем событие "долгое нажатие"
+    30: ; каждый 0 на входе делает T1 := 0
+    31: ; больше максимума не увеличиваем
+    32: ;
+    33: 
+    34: .equ InputStateRecordLen = 1
+    35: .equ InputState_Disp_T1 = 0
+    36: 
+    37: InputStates:
+    38:     .byte InputCount * InputStateRecordLen
+    39: 
+    40: Uptime:
+    41:     .byte 1
+    42: Communicated:
+    43:     .byte 1
+    44: ;-----------------------------------------------------------------
+    45: LampStateKnownExt:
+    46:     .byte 1
+    47: LampStateExt:
+    48:     .byte LampBytes
+    49: ;-----------------------------------------------------------------
+    50: RadioSendMask:      ; какой бит шлём
+    51:     .byte 1
+    52: RadioSendPosition:  ; какой байт шлём
+    53:     .byte 2
+    54: RadioSendBytesLeft: ; сколько байт осталось слать
+    55:     .byte 1
+    56: 
+    57: RadioSendLampId:   ; какая лампа вызвала посылку
+    58:     .byte 1
+    59: RadioSendRepeatsLeft:
+    60:     .byte 1
+  Continuing file main.asm
+   222: ;---------------------------------------------------------------------
+ -> Warning 001: 52 symbol(s) defined, but not used!
+
+Program             :      866 words.
+Constants           :       86 words.
+Total program memory:      952 words.
+Eeprom space        :        0 bytes.
+Data segment        :       67 bytes.
+Compilation completed, no errors.
+Compilation endet 18.08.2026, 12:28:27

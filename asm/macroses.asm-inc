@@ -1,0 +1,49 @@
+.macro LDIProgMemAddrZ
+        ldi zH,High(@0 * 2)
+        ldi zL,Low(@0 * 2)
+.endmacro
+
+.macro LDIProgMemAddrX
+        ldi xH,High(@0 * 2)
+        ldi xL,Low(@0 * 2)
+.endmacro
+
+.macro LDIRamAddrZ
+        ldi zH,High(@0 )
+        ldi zL,Low(@0)
+.endmacro
+
+.macro LDIRamAddrX
+        ldi xH,High(@0 )
+        ldi xL,Low(@0)
+.endmacro
+
+.macro LDIRamAddrY
+        ldi yH,High(@0 )
+        ldi yL,Low(@0)
+.endmacro
+
+
+
+
+.macro LDIWZ
+        ldi zH,High(@0 )
+        ldi zL,Low(@0)
+.endmacro
+
+
+
+.if UseEE == 1
+.macro LDIConfigAddrZ
+        ldi zH,High(@0 )
+        ldi zL,Low(@0)
+.endmacro
+
+.else
+; PROG Flash
+.macro LDIConfigAddrZ
+        ldi zH,High(@0 * 2)
+        ldi zL,Low(@0 * 2)
+.endmacro
+
+.endif

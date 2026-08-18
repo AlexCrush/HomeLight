@@ -1,0 +1,45 @@
+
+
+
+
+1 Master, N slaves
+
+
+Req:
+    bool LampsStateKnown
+    LampsState
+Rsp:
+    bool LampsStateKnown
+    LampsState        
+    
+Master:
+
+
+    LampsStateKnown = fals
+    Uptime = 0
+    LampsState = []
+    
+    while True:
+      for slave in slaves:
+        rsp := slave.req(Uptime, LampsState)
+        if not rsp:
+          continue
+        if rsp.Uptime == 255: 
+          Uptime = 255
+        LampState = rsp.LampState
+
+      if uptime < 255:
+        uptime += 1
+
+      LampsStateKnown = true
+
+Slave:
+  Process(req)
+    if Uptime <= req.Uptime:
+       LampState = req.LampState
+       if req.Uptime == 255
+         Uptime = 255
+    rsp.Uptime = Uptime
+    ReapplyOnOff()
+    rsp.LampS
+  

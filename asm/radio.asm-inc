@@ -1,0 +1,160 @@
+.equ Radio_Tick_Period_Microsec = 270
+.equ Radio_Tick_Period_Cycles = FREQ_MHZ * Radio_Tick_Period_Microsec ; Because at 1 MHZ  one cycle = 1 microsec
+
+Radio_Init:
+    sbi DD_Radio, BIT_Radio
+    cbi Port_Radio, BIT_Radio
+    clr tmp
+    sts RadioSendPosition, tmp
+    sts RadioSendPosition+1, tmp
+    sts RadioSendBytesLeft, tmp
+    sts RadioSendMask, tmp
+    sts RadioSendLampId, tmp
+    sts RadioSendRepeatsLeft, tmp
+
+; Timer1 Config
+    ldi tmp, High(Radio_Tick_Period_Cycles)
+    ldi tmp1, Low(Radio_Tick_Period_Cycles)
+    out OCR1AH, tmp
+    out OCR1AL, tmp1
+
+    ldi tmp, 0b00000000  ; CTC mode
+    out TCCR1A, tmp
+    ldi tmp, 0b00001001  ; CTC mode, ClockSource =  Fclk
+    out TCCR1B, tmp
+
+    ret
+
+;------------------------------------------------------
+Radio_ProcessInputs:
+    lds tmp, RadioSendMask
+    tst tmp
+    brne Radio_ProcessInputs_Exit ; что то шлём, значит делать нечего
+    lds tmp2, RadioSendLampId
+    tst tmp2
+    breq Radio_ProcessInputs_CheckNewSend
+    ; Закончили одну посылку по какой-то лампе, но может надо повторить
+    lds tmp, RadioSendRepeatsLeft
+    tst tmp
+    breq Radio_ProcessInputs_LampTurnOff
+    dec tmp
+    sts RadioSendRepeatsLeft, tmp
+    mov tmp, tmp2
+    brne Radio_ProcessInputs_PrepareSend
+
+Radio_ProcessInputs_LampTurnOff:
+    ldi tmp1, LampAction_Off
+    rcall Lamp_ApplyAction
+    clr tmp
+    sts RadioSendLampId, tmp
+Radio_ProcessInputs_CheckNewSend:
+    ; yes, hardcode!
+    ldi tmp, Lamp_RadioProjectorScreenUp
+    rcall Radio_CheckLamp
+    brne Radio_ProcessInputs_PrepareSend
+
+    ldi tmp, Lamp_RadioProjectorScreenDown
+    rcall Radio_CheckLamp
+    brne Radio_ProcessInputs_PrepareSend
+
+    ldi tmp, Lamp_RadioProjectorScreenStop
+    rcall Radio_CheckLamp
+    brne Radio_ProcessInputs_PrepareSend
+Radio_ProcessInputs_Exit:
+    ret
+
+Radio_CheckLamp:
+    push tmp
+    rcall Lamp_GetStateSafe
+    tst tmp
+    pop tmp
+    ret
+
+Radio_ProcessInputs_PrepareSend:
+    sts RadioSendLampId, tmp
+    cpi tmp, Lamp_RadioProjectorScreenUp
+    LDIProgMemAddrZ RadioData_ProjectorScreenUp
+    breq Radio_ProcessInputs_PrepareSend_Continue
+    cpi tmp, Lamp_RadioProjectorScreenDown
+    LDIProgMemAddrZ RadioData_ProjectorScreenDown
+    breq Radio_ProcessInputs_PrepareSend_Continue
+    LDIProgMemAddrZ RadioData_ProjectorScreenStop
+Radio_ProcessInputs_PrepareSend_Continue:
+
+    lds tmp, RadioSendRepeatsLeft
+    tst tmp
+    brne Radio_ProcessInputs_PrepareSend_RepeatsOK
+    ldi tmp, RadioData_RepeatCount
+    sts RadioSendRepeatsLeft, tmp
+Radio_ProcessInputs_PrepareSend_RepeatsOK:
+    ldi tmp, RadioData_Len
+    rjmp Radio_StartSend
+
+;------------------------------------------------------
+
+Radio_StartSend:
+; input: Z - start position in ROM
+;        tmp - byte count
+    sts RadioSendPosition, zL
+    sts RadioSendPosition+1, zH
+    sts RadioSendBytesLeft, tmp
+    ldi tmp, 0b10000000
+    sts RadioSendMask, tmp
+    in tmp, TIMSK
+    ori tmp, 1 << OCIE1A
+    out TIMSK, tmp
+    ret
+
+Radio_Tick:
+    push tmp
+    in tmp, SREG
+    push tmp
+    push tmp1
+    push zL
+    push zH
+
+    lds tmp1, RadioSendMask
+    tst tmp1
+    breq Radio_TickExit ; safety check
+
+    lds zL, RadioSendPosition
+    lds zH, RadioSendPosition+1
+    lds tmp1, RadioSendMask
+    lpm tmp, Z+
+    and tmp, tmp1
+    breq Radio_Tick_SendZero
+    sbi Port_Radio, BIT_Radio
+    rjmp Radio_Tick_Next
+Radio_Tick_SendZero:
+    cbi Port_Radio, BIT_Radio
+Radio_Tick_Next:
+    lsr tmp1
+    brne Radio_Tick_NextSameByte
+    ldi tmp1, 0b10000000
+    ; Z is already incremented
+    sts RadioSendPosition, zL
+    sts RadioSendPosition+1, zH
+    lds tmp, RadioSendBytesLeft
+    dec tmp
+    sts RadioSendBytesLeft, tmp
+    brne Radio_Tick_NextSameByte
+    ; disable interrupts
+    in tmp, TIMSK
+    andi tmp, 255 - (1 << OCIE1A)
+    out TIMSK, tmp
+
+    clr tmp1 ; just in case
+
+Radio_Tick_NextSameByte:
+    sts RadioSendMask, tmp1
+
+Radio_TickExit:
+    pop zH
+    pop zL
+    pop tmp1
+    pop tmp
+    out SREG, tmp
+    pop tmp
+    reti
+
+

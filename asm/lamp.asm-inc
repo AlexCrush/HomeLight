@@ -1,0 +1,314 @@
+Lamp_Init:
+    ldi tmp, LampOffSubtimerMax
+    sts LampOffSubtimerMax, tmp
+
+    clr tmp
+    sts LampStateKnown, tmp
+
+    clr tmp
+    LDIRamAddrZ LampOffTimers
+    ldi tmp1, OffTimersBytes
+    rcall LampWriteBytesLoop
+
+    LDIRamAddrZ LampState
+    rcall LampWriteAllBytes
+    LDIRamAddrZ LampStateMaster
+    rcall LampWriteAllBytes
+    LDIRamAddrZ LampStateMaskOn
+    rcall LampWriteAllBytes
+    LDIRamAddrZ LampStateMaskOff
+
+LampWriteAllBytes:
+    ldi tmp1, LampBytes
+LampWriteBytesLoop:
+    st Z+, tmp
+    dec tmp1
+    brne LampWriteBytesLoop
+    ret
+;-------------------------------------------------------
+Lamp_GetOffsetAndMask:
+; in: tmp - lamp index
+; out:
+;      tmp1 - lamp offset
+;      tmp2 - lamp bit mask  (00001000)
+    push tmp
+    ldi tmp2, 1
+    andi tmp, 7
+    breq Lamp_GetOffsetAndMask_BitLoopEnd
+Lamp_GetOffsetAndMask_BitLoop:
+    lsl tmp2
+    dec tmp
+    brne Lamp_GetOffsetAndMask_BitLoop
+Lamp_GetOffsetAndMask_BitLoopEnd:
+    pop tmp1
+    lsr tmp1
+    lsr tmp1
+    lsr tmp1
+    ret
+;-------------------------------------------------------
+Lamp_AddOffsetGetMask:
+    rcall Lamp_GetOffsetAndMask
+Lamp_AddOffset:
+    push tmp2
+    clr tmp2
+    add zL, tmp1
+    adc zH, tmp2
+    pop tmp2
+    ret
+;-------------------------------------------------------
+Lamp_GetStateSafe:
+; in: tmp - lamp index
+; out: tmp - lamp state (0 / not 0)
+    cpi tmp, LampCount
+    brcs Lamp_GetState
+    clr tmp
+    ret
+Lamp_GetState:
+    push zL
+    push zH
+    push tmp1
+    push tmp2
+    LDIRamAddrZ LampState
+    rcall Lamp_AddOffsetGetMask
+    ld tmp, Z
+    and tmp, tmp2
+    pop tmp2
+    pop tmp1
+    pop zH
+    pop zL
+    ret
+;-------------------------------------------------------
+Lamp_ApplyAction:
+; in:
+;   tmp1 Action
+;   tmp2 arg0 (LampNo)
+;   tmp3 arg1 (various)
+    push zL
+    push zH
+    cpi tmp1, LampAction_OffAll
+    breq Lamp_ApplyAction_OffAll
+
+    cpi tmp1, LampAction_Off
+    breq Lamp_ApplyAction_OffOnSwitch
+    cpi tmp1, LampAction_On
+    breq Lamp_ApplyAction_OffOnSwitch
+    cpi tmp1, LampAction_Switch
+    breq Lamp_ApplyAction_OffOnSwitch
+
+    cpi tmp1, LampAction_CopyFrom
+    breq Lamp_ApplyAction_CopyFrom
+
+    cpi tmp1, LampAction_SetOffTimer
+    breq Lamp_ApplyAction_SetOffTimer
+
+    cpi tmp1, LampAction_Custom
+    breq Lamp_ApplyAction_Custom
+
+; Uknown action
+Lamp_ApplyActionExit:
+    pop zH
+    pop zL
+    ret
+
+Lamp_ApplyAction_OffAll:
+    clr tmp
+    LDIRamAddrZ LampState
+    rcall LampWriteAllBytes
+    clr tmp
+    LDIRamAddrZ LampStateMaskOn
+    rcall LampWriteAllBytes
+    ser tmp
+    LDIRamAddrZ LampStateMaskOff
+    rcall LampWriteAllBytes
+    rjmp Lamp_ApplyActionExit
+
+Lamp_ApplyAction_CopyFrom:
+    push tmp2 ; Destination lamp id
+    mov tmp, tmp3
+    LDIRamAddrZ LampState
+    rcall Lamp_AddOffsetGetMask
+    ld tmp, Z
+    and tmp, tmp2
+    pop tmp2
+    ldi tmp1, LampAction_Off
+    breq Lamp_ApplyAction_OffOnSwitch
+    ldi tmp1, LampAction_On
+    rjmp Lamp_ApplyAction_OffOnSwitch
+
+Lamp_ApplyAction_SetOffTimer:
+    rcall Lamp_SetOffTimer
+    rjmp Lamp_ApplyActionExit ; todo
+
+Lamp_ApplyAction_OffOnSwitch:
+    mov tmp, tmp2
+    rcall Lamp_Do_OffOnSwitch
+    rjmp Lamp_ApplyActionExit
+
+Lamp_ApplyAction_Custom:
+    mov zL, tmp2
+    mov zH, tmp3
+    icall ; got bless us!
+    rjmp Lamp_ApplyActionExit
+;-------------------------------------------------------
+; IN: tmp1 - action (LampAction_Off/On/Switch)
+;     tmp - lamp
+
+Lamp_Do_OffOnSwitch:
+    push tmp1 ; action
+    LDIRamAddrZ LampState
+    rcall Lamp_AddOffsetGetMask
+    mov tmp3, tmp2
+    com tmp3
+    ; tmp1 - offset
+    ; tmp2 - OR mask  00010000
+    ; tmp3 - AND mask 11101111
+    pop tmp
+
+    cpi tmp, LampAction_Off
+    breq Lamp_Do_Off
+    cpi tmp, LampAction_On
+    breq Lamp_Do_On
+
+    ; switch otherwise
+    ld tmp, Z
+    and tmp, tmp2
+    breq Lamp_Do_On
+Lamp_Do_Off:
+    ld tmp, Z
+    and tmp, tmp3
+    st Z, tmp
+    LDIRamAddrZ LampStateMaskOn
+    rcall Lamp_AddOffset
+    ld tmp, Z
+    and tmp, tmp3
+    st Z, tmp
+    LDIRamAddrZ LampStateMaskOff
+    rcall Lamp_AddOffset
+    ld tmp, Z
+    or tmp, tmp2
+    st Z, tmp
+    ret
+
+Lamp_Do_On:
+    ld tmp, Z
+    or tmp, tmp2
+    st Z, tmp
+    LDIRamAddrZ LampStateMaskOn
+    rcall Lamp_AddOffset
+    ld tmp, Z
+    or tmp, tmp2
+    st Z, tmp
+    LDIRamAddrZ LampStateMaskOff
+    rcall Lamp_AddOffset
+    ld tmp, Z
+    and tmp, tmp3
+    st Z, tmp
+    ret
+
+;-------------------------------------------------------
+Lamp_SetOffTimer:
+; in: tmp2 - lamp id
+;     tmp3 - timer value
+
+    ; pass 1 - try find entry with same lamp id
+    ldi tmp1, MaxOffTimers
+    LDIRamAddrZ LampOffTimers
+Lamp_SetOffTimer_TryNext:
+    ld tmp, Z+
+    ld tmp, Z+
+    cp tmp, tmp2
+    breq Lamp_SetOffTimer_UseAddr
+    dec tmp1
+    brne Lamp_SetOffTimer_TryNext
+
+    ; pass 2 - try find entry with zero timeout
+    ldi tmp1, MaxOffTimers
+    LDIRamAddrZ LampOffTimers
+Lamp_SetOffTimer_TryNext2:
+    ld tmp, Z+
+    tst tmp
+    ld tmp, Z+
+    breq Lamp_SetOffTimer_UseAddr
+    dec tmp1
+    brne Lamp_SetOffTimer_TryNext2
+    ;  oops no empty cells for timer
+    ret
+
+Lamp_SetOffTimer_UseAddr:
+    sbiw zL, 2
+    st Z+, tmp3  ; timer val
+    st Z, tmp2   ; lamp id
+    ret
+;-------------------------------------------------------
+Lamp_TickOffTimers:
+    ldi tmp3, MaxOffTimers
+    LDIRamAddrZ LampOffTimers
+Lamp_TickOffTimers_Loop:
+    ld tmp, Z+
+    ld tmp2, Z+
+    tst tmp
+    breq Lamp_TickOffTimers_Loop_Next
+    sbiw zL, 2
+    dec tmp
+    st Z+, tmp
+    adiw zL, 1
+    tst tmp
+    brne Lamp_TickOffTimers_Loop_Next
+    ; Do off!
+    push zL
+    push zH
+    push tmp3
+    ldi tmp1, LampAction_Off
+    ; tmp2 - lamp id
+    rcall Lamp_ApplyAction
+    pop tmp3
+    pop zH
+    pop zL
+Lamp_TickOffTimers_Loop_Next:
+    dec tmp3
+    brne Lamp_TickOffTimers_Loop
+    ret
+;-------------------------------------------------------
+Lamp_ReapplyOnOff:
+    ; Reapply On
+    LDIRamAddrZ LampState
+    LDIRamAddrY LampStateMaskOn
+    ldi tmp3, LampBytes
+Lamp_ReapplyOnLoop:
+    ld tmp, Z      ; 01011100
+    ld tmp1, Y     ; 01000001
+    mov tmp2, tmp
+    com tmp2       ; 10100011
+    and tmp1, tmp2 ; 00000001
+    or tmp, tmp1
+    st Z+, tmp
+    st Y+, tmp1
+    dec tmp3
+    brne Lamp_ReapplyOnLoop
+
+; Reapply Off
+    LDIRamAddrZ LampState
+    LDIRamAddrY LampStateMaskOff
+    ldi tmp3, LampBytes
+Lamp_ReapplyOffLoop:
+    ld tmp, Z      ; 01011100
+    ld tmp1, Y     ; 01000001
+    and tmp1, tmp  ; 01000000
+    com tmp1
+    and tmp, tmp1
+    com tmp1
+    st Z+, tmp
+    st Y+, tmp1
+    dec tmp3
+    brne Lamp_ReapplyOffLoop
+    ret
+;-------------------------------------------------------
+Lamp_CopyZToY:
+    ldi tmp1, LampBytes
+Lamp_CopyZToYLoop:
+    ld tmp, Z+
+    st Y+, tmp
+    dec tmp1
+    brne Lamp_CopyZToYLoop
+    ret
+

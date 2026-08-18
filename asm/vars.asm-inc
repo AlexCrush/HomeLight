@@ -1,0 +1,60 @@
+;-----------------------------------------------------------------
+;RAM data
+;-----------------------------------------------------------------
+.DSEG
+.ORG  0x60
+; SRAM MAP
+
+LampStateKnown:
+    .byte 1
+LampState:
+    .byte LampBytes
+LampStateMaskOn:
+    .byte LampBytes
+LampStateMaskOff:
+    .byte LampBytes
+
+LampStateMaster:
+    .byte LampBytes
+
+LampOffSubtimer:
+    .byte 1
+
+LampOffTimers:
+    .byte OffTimersBytes ; Each record: (TimerVal, LampId)
+;-----------------------------------------------------------------
+; Переменные для кнопки без фиксации
+; T1 с последнего перехода 0->1
+; в момент T1 > TShort фиксируем событие "короткое нажатие"
+; в момент T1 > Tlong  фиксируем событие "долгое нажатие"
+; каждый 0 на входе делает T1 := 0
+; больше максимума не увеличиваем
+;
+
+.equ InputStateRecordLen = 1
+.equ InputState_Disp_T1 = 0
+
+InputStates:
+    .byte InputCount * InputStateRecordLen
+
+Uptime:
+    .byte 1
+Communicated:
+    .byte 1
+;-----------------------------------------------------------------
+LampStateKnownExt:
+    .byte 1
+LampStateExt:
+    .byte LampBytes
+;-----------------------------------------------------------------
+RadioSendMask:      ; какой бит шлём
+    .byte 1
+RadioSendPosition:  ; какой байт шлём
+    .byte 2
+RadioSendBytesLeft: ; сколько байт осталось слать
+    .byte 1
+
+RadioSendLampId:   ; какая лампа вызвала посылку
+    .byte 1
+RadioSendRepeatsLeft:
+    .byte 1

@@ -1,0 +1,5 @@
+SOURCES += $$system("find *.asm")
+SOURCES += $$system("find *.asm-inc")
+#SOURCES += $$system("find *.inc")
+#SOURCES += $$system("find *.txt")
+#SOURCES += $$system("find *.lst")

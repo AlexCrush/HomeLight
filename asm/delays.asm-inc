@@ -1,0 +1,62 @@
+;// короткая задержка
+SMALL_WAIT:
+    nop
+    ret
+;---------------------------------------------------------------------------
+
+WAIT_1_Sec:
+    ldi tmp, 10
+WAIT_1_Sec_1:
+    push tmp
+    ldi tmp, 100
+WAIT_1_Sec_2:
+    push tmp
+    rcall WAIT_1_Milli
+    pop tmp
+    dec tmp
+    brne WAIT_1_Sec_2
+    pop tmp
+    dec tmp
+    brne WAIT_1_Sec_1
+    ret
+
+;---------------------------------------------------------------------------
+
+WAIT_1_Milli:
+    rcall WAIT_300_Micros
+    rcall WAIT_300_Micros
+    rcall WAIT_300_Micros
+    rjmp  WAIT_100_Micros
+;---------------------------------------------------------------------------
+WAIT_300_Micros:
+    rcall WAIT_100_Micros
+    rcall WAIT_100_Micros
+WAIT_100_Micros:
+    rcall WAIT_20_Micros
+    rcall WAIT_20_Micros
+WAIT_60_Micros:
+    rcall WAIT_20_Micros
+WAIT_40_Micros:
+    rcall WAIT_20_Micros
+WAIT_20_Micros: ; X micros = X * (FREQ / 1000000) cycles.  20 mircos = 400 cycles at 20MHz
+    push tmp
+    ldi tmp, FREQ_MHZ * 4 ; @20 MHz tmp=80, total time is 5*80=400 cycles
+    rjmp WAIT_5_Micros_Loop
+;---------------------------------------------------------------------------
+WAIT_5_Micros: ; X micros = X * (FREQ / 1000000) cycles.  5 mircos = 100 cycles at 20MHz
+    push tmp
+    ldi tmp, FREQ_MHZ ; @20 MHz tmp=20, total time is 100 cycles
+WAIT_5_Micros_Loop: ; 5 cycles
+    nop
+    nop
+    dec tmp
+    brne WAIT_5_Micros_Loop
+    pop tmp
+    ret
+;---------------------------------------------------------------------------
+WAIT_Tmp_Millis:
+    rcall WAIT_1_Milli
+    dec tmp
+    brne WAIT_Tmp_Millis
+    ret
+;---------------------------------------------------------------------------

@@ -1,0 +1,484 @@
+;-----------------------------------------------------------------
+;Config data - stored in EE or Flash depending on UseEE
+;-----------------------------------------------------------------
+.if UseEE == 1
+.ESEG
+.macro ConfigORG
+.ORG @0
+.endmacro
+
+.else
+;.CSEG
+.macro ConfigORG
+; nop
+.endmacro
+.endif
+
+
+.equ Org_RelayToLamp        = 0x000
+.equ Org_ShortPressConfig   = 0x010
+.equ Org_ShortReleaseConfig = 0x030
+.equ Org_LongPressConfig    = 0x050
+.equ Org_LongReleaseConfig  = 0x070
+
+;-----------------------------------------------------------------
+; Реле перепутаны напрочь :-)
+; Порядок в config (бит в Relay_DirectWrite ) | Номер контакта на плате, слева направо: 012345678, 8 - общий
+; 0 | 3
+; 1 | 1
+; 2 | 5
+; 3 | 7
+; 4 | 6
+; 5 | 4
+; 6 | 2
+; 7 | 0
+
+; RelayX = Логическая нумерация, соответствует контакту на плате
+.equ Relay0 = 1 << 7
+.equ Relay1 = 1 << 1
+.equ Relay2 = 1 << 6
+.equ Relay3 = 1 << 0
+.equ Relay4 = 1 << 5
+.equ Relay5 = 1 << 2
+.equ Relay6 = 1 << 4
+.equ Relay7 = 1 << 3
+;-----------------------------------------------------------------
+; Всего 64 лампочки MAX
+; Конфиг каждого реле:
+; Номер лампочки, FF если реле не используется
+;
+;
+;   Нажали -> сразу ShortPress
+;   Отпустили быстро -> ShortRelease
+;   Держим дольше - LongPress
+;   Отпустили -> LongRelease
+
+.macro LOffAll
+      .db @0, LampAction_OffAll, 0, 0
+.endmacro
+
+.macro LOff
+      .db @0, LampAction_Off, @1, 0
+.endmacro
+
+.macro LOn
+      .db @0, LampAction_On, @1, 0
+.endmacro
+
+.macro LSw
+      .db @0, LampAction_Switch, @1, 0
+.endmacro
+
+.macro LCopyFrom
+      .db @0, LampAction_CopyFrom, @1, @2
+.endmacro
+
+.macro LSetOffTimer
+      .db @0, LampAction_SetOffTimer, @1, @2
+.endmacro
+
+.macro LCustomAction
+      .db @0, LampAction_Custom, LOW(@1), HIGH(@1)
+.endmacro
+
+.equ Lamp_Boileroom     = 0
+.equ Lamp_Toilet1       = 1
+.equ Lamp_StairsBra     = 2
+.equ Lamp_Facade        = 3
+.equ Lamp_Living        = 4
+.equ Lamp_Kitchen       = 5
+.equ Lamp_Hallway       = 6  ; Прихожая
+.equ Lamp_Storage       = 7
+.equ Lamp_Hall1         = 8  ; Коридор на 1 этаже
+.equ Lamp_Toilet2       = 9
+.equ Lamp_Sauna         = 10
+.equ Lamp_Bedroom       = 11
+.equ Lamp_Childroom     = 12
+.equ Lamp_Cabinet       = 13 ; реле
+.equ Lamp_Hall2         = 14 ; Коридор на 2 этаже
+.equ Lamp_Canopy1       = 15 ; Навес лампы
+.equ Lamp_Canopy2       = 29 ; Навес гирлянды
+.equ Lamp_Terrace1      = 16 ; терраса лампы
+.equ Lamp_Terrace2      = 17 ; терраса гирлянды
+.equ Lamp_Toilet2Mirror = 18
+.equ Lamp_TowelDrier    = 19 ; Полотенчик
+.equ Lamp_Vent1         = 20
+.equ Lamp_Vent2         = 21
+.equ Lamp_KitchenLight  = 22
+.equ Lamp_LivingFloor   = 23
+.equ Lamp_Toilet1Mirror = 24
+.equ Lamp_BedroomBra1   = 25
+.equ Lamp_BedroomBra2   = 26
+.equ Lamp_ChildroomBra1 = 27
+.equ Lamp_ChildroomBra2 = 28
+.equ Lamp_CabinetLight  = 30
+.equ Lamp_BedroomLight  = 31
+.equ Lamp_ChildroomMirror = 32  ; Реле
+.equ Lamp_BedroomWardrobe = 33  ; Реле - сами лампы шкафа
+; 34 unused
+.equ Lamp_BedroomWardrobeSens = 35 ; Выключатель (герконы)
+
+.equ Lamp_RadioProjectorScreenUp = 36
+.equ Lamp_RadioProjectorScreenDown = 37
+.equ Lamp_RadioProjectorScreenStop = 38
+
+.equ Lamp_CabinetSens = 39 ; Выключатель
+.equ Lamp_ChildroomMirrorSens = 40  ; Выключатель
+.equ Lamp_Toilet2HintOn = 41 ; Подсказывалка, что делать при нажатии - вкл или выкл. Сложнаа
+
+;----------------------------------------------------------------------------------------------------------------------------------
+;----------------------------------------------------------------------------------------------------------------------------------
+.if ConfigId == 1 ; Котельная
+;ConfigORG  Org_RelayToLamp
+RelayToLamp:
+    .db Relay0, Lamp_Boileroom,
+    .db Relay1, Lamp_Toilet1
+    ;.db Relay2, Lamp_Terrace1
+    ;.db Relay3, Lamp_Terrace2
+    ;.db Relay4, Lamp_Living,
+    ;.db Relay5, Lamp_Kitchen
+    .db Relay6, Lamp_StairsBra,
+    .db Relay7, Lamp_Facade
+    .db 0xFF, 0xFF
+
+;ConfigORG Org_ShortPressConfig
+ShortPressConfig:
+    LOn 0, Lamp_Boileroom
+    LSw 1, Lamp_Toilet1
+    LSw 2, Lamp_Hall1 ; у лестницы
+    LSw 7, Lamp_StairsBra
+    .db 0xFF, 0xFF
+
+ConfigORG  Org_ShortReleaseConfig
+ShortReleaseConfig:
+    LOff 0, Lamp_Boileroom
+    .db 0xFF, 0xFF
+
+
+ConfigORG  Org_LongPressConfig
+LongPressConfig:
+    .db 0xFF, 0xFF
+
+ConfigORG  Org_LongReleaseConfig
+LongReleaseConfig:
+    LOff 0, Lamp_Boileroom
+    .db 0xFF, 0xFF
+
+
+.endif
+
+;----------------------------------------------------------------------------------------------------------------------------------
+;----------------------------------------------------------------------------------------------------------------------------------
+.if ConfigId == 2 ; Кладовка
+
+.equ Lamp_Hallway_Delay = 200
+
+ConfigORG  Org_RelayToLamp
+RelayToLamp:
+    .db Relay0, Lamp_Hallway
+    .db Relay1, Lamp_Storage
+    .db Relay2, Lamp_Facade
+    .db Relay3, Lamp_Hall1
+    ; relay4 - NOT installed
+    .db Relay5, Lamp_StairsBra,
+    ; relay 6 - NOT installed
+    .db 0xFF, 0xFF
+
+
+ConfigORG  ShortPressConfig
+ShortPressConfig:
+    LSw 2, Lamp_Storage
+    LSw 3, Lamp_Facade
+    LSw 5, Lamp_Hall1
+    LSw 6, Lamp_Hall1
+    .db 0xFF, 0xFF
+
+ConfigORG  Org_ShortReleaseConfig
+ShortReleaseConfig:
+    LSw 0, Lamp_Hallway
+    LSw 1, Lamp_Hallway
+    LSw 4, Lamp_Canopy1
+    LOn 7, Lamp_Hallway
+    .db 0xFF, 0xFF
+
+ConfigORG  Org_LongPressConfig
+LongPressConfig:
+    LSw 4, Lamp_Canopy2
+    .db 0xFF, 0xFF
+
+ConfigORG  Org_LongReleaseConfig
+LongReleaseConfig:
+    .db 0xFF, 0xFF
+
+
+.endif
+;----------------------------------------------------------------------------------------------------------------------------------
+;----------------------------------------------------------------------------------------------------------------------------------
+.if ConfigId == 3 ; СУ2
+
+ConfigORG  Org_RelayToLamp
+RelayToLamp:
+    .db Relay0, Lamp_BedroomLight
+    .db Relay1, Lamp_Toilet2
+    .db Relay2, Lamp_Bedroom
+    .db Relay3, Lamp_BedroomBra1
+    .db Relay4, Lamp_BedroomBra2
+    .db Relay5, Lamp_BedroomWardrobe
+    .db Relay5, Lamp_BedroomLight ; tricky "OR"
+    .db Relay6, Lamp_Canopy1
+    .db Relay7, Lamp_Canopy2
+    .db 0xFF, 0xFF
+
+
+ConfigORG  ShortPressConfig
+ShortPressConfig:
+    LOn 0, Lamp_TowelDrier
+    LSw 4, Lamp_BedroomBra1
+    LSw 5, Lamp_BedroomBra2
+    LOff 7, Lamp_BedroomWardrobeSens
+    .db 0xFF, 0xFF
+
+ConfigORG  Org_ShortReleaseConfig
+ShortReleaseConfig:
+    ;LSw 0, Lamp_Toilet2
+    ;LCopyFrom 0, Lamp_Toilet2Mirror, Lamp_Toilet2  ; From Lamp_Toilet2 to Lamp_Toilet2Mirror, like LD A, B
+    LCustomAction 0, CustomAction_SU2Light
+    LSw 1, Lamp_Sauna
+    LSw 2, Lamp_Bedroom
+    LSw 3, Lamp_Bedroom
+    LSw 6, Lamp_Bedroom
+    LOn 7, Lamp_BedroomWardrobeSens
+    LOn 7, Lamp_BedroomWardrobe
+    .db 0xFF, 0xFF
+
+ConfigORG  Org_LongPressConfig
+LongPressConfig:
+    LSw 0, Lamp_Vent2
+    LSw 1, Lamp_Vent1
+    LSw 2, Lamp_BedroomLight
+    LSw 3, Lamp_BedroomLight
+    LSw 6, Lamp_BedroomLight
+    .db 0xFF, 0xFF
+
+ConfigORG  Org_LongReleaseConfig
+LongReleaseConfig:
+    LOn 7, Lamp_BedroomWardrobeSens
+    LOn 7, Lamp_BedroomWardrobe
+    .db 0xFF, 0xFF
+
+CustomAction_SU2Light:
+    ; Если основной свет включен - выключить
+    ldi tmp1, LampAction_Off
+    ldi tmp, Lamp_Toilet2
+    rcall Lamp_GetStateSafe
+    tst tmp
+    brne CustomAction_SU2Light_Off
+    ; Если включен флаг - то будем включать свет вне зависимости от зеркала
+    ldi tmp, Lamp_Toilet2HintOn
+    rcall Lamp_GetStateSafe
+    tst tmp
+    brne CustomAction_SU2Light_On
+    ; Если зеркало включено - то надо выключать свет
+    ldi tmp, Lamp_Toilet2Mirror
+    rcall Lamp_GetStateSafe
+    tst tmp
+    brne CustomAction_SU2Light_Off
+CustomAction_SU2Light_On:
+    ldi tmp1, LampAction_On
+
+CustomAction_SU2Light_Off:
+    push tmp1
+    ldi tmp, Lamp_Toilet2
+    rcall Lamp_Do_OffOnSwitch
+    pop tmp1
+    ldi tmp, Lamp_Toilet2Mirror
+    rjmp Lamp_Do_OffOnSwitch
+.endif
+;----------------------------------------------------------------------------------------------------------------------------------
+;----------------------------------------------------------------------------------------------------------------------------------
+.if ConfigId == 4 ; Гостиная
+ConfigORG  Org_RelayToLamp
+RelayToLamp:
+    .db Relay0, Lamp_Terrace1,
+    .db Relay1, Lamp_Terrace2
+    .db Relay2, Lamp_Living
+    .db Relay3, Lamp_Kitchen
+    .db Relay4, Lamp_KitchenLight
+    .db Relay5, Lamp_Facade
+    .db Relay6, Lamp_LivingFloor
+    .db Relay7, Lamp_KitchenLight
+    .db 0xFF, 0xFF
+
+
+ConfigORG  ShortPressConfig
+ShortPressConfig:
+    LOn 0, Lamp_Terrace1
+    LOn 1, Lamp_Terrace2
+    LSw 7, Lamp_KitchenLight
+    .db 0xFF, 0xFF
+
+ConfigORG  Org_ShortReleaseConfig
+ShortReleaseConfig:
+    LOff 0, Lamp_Terrace1
+    LOff 1, Lamp_Terrace2
+    LSw 2, Lamp_Kitchen
+    LSw 3, Lamp_Living
+    LSw 7, Lamp_KitchenLight
+    .db 0xFF, 0xFF
+
+ConfigORG  Org_LongPressConfig
+LongPressConfig:
+    LSw 2, Lamp_KitchenLight
+    .db 0xFF, 0xFF
+
+ConfigORG  Org_LongReleaseConfig
+LongReleaseConfig:
+    LOff 0, Lamp_Terrace1
+    LOff 1, Lamp_Terrace2
+    LSw 7, Lamp_KitchenLight
+    .db 0xFF, 0xFF
+
+
+.endif
+;----------------------------------------------------------------------------------------------------------------------------------
+;----------------------------------------------------------------------------------------------------------------------------------
+.if ConfigId == 5 ; СУ2-упр
+ConfigORG  Org_RelayToLamp
+RelayToLamp:
+    .db Relay3, Lamp_Toilet2Mirror
+    .db Relay4, Lamp_Sauna
+    .db Relay5, Lamp_Vent1
+    .db Relay6, Lamp_Vent2
+    .db Relay7, Lamp_TowelDrier
+    .db 0xFF, 0xFF
+
+
+ConfigORG  ShortPressConfig
+ShortPressConfig:
+     LSw 0, Lamp_Toilet2Mirror
+    .db 0xFF, 0xFF
+
+ConfigORG  Org_ShortReleaseConfig
+ShortReleaseConfig:
+    LSw 0, Lamp_Toilet2Mirror
+    .db 0xFF, 0xFF
+
+ConfigORG  Org_LongPressConfig
+LongPressConfig:
+    .db 0xFF, 0xFF
+
+ConfigORG  Org_LongReleaseConfig
+LongReleaseConfig:
+    LSw 0, Lamp_Toilet2Mirror
+    .db 0xFF, 0xFF
+
+
+.endif
+
+;----------------------------------------------------------------------------------------------------------------------------------
+;----------------------------------------------------------------------------------------------------------------------------------
+.if ConfigId == 6 ; Детская
+ConfigORG  Org_RelayToLamp
+RelayToLamp:
+    .db Relay0, Lamp_Cabinet ; Solid relay
+    .db Relay1, Lamp_CabinetLight
+    .db Relay2, Lamp_ChildroomMirror
+    .db Relay3, Lamp_Childroom
+    .db Relay4, Lamp_Hall2
+;    .db Relay5, Lamp_Childroom ; failed relay
+    .db Relay6, Lamp_ChildroomBra1
+    .db Relay7, Lamp_ChildroomBra2
+    .db 0xFF, 0xFF
+
+
+ConfigORG  ShortPressConfig
+ShortPressConfig:
+    LSw 0, Lamp_Hall2
+    LSw 6, Lamp_CabinetLight
+    .db 0xFF, 0xFF
+
+ConfigORG  Org_ShortReleaseConfig
+ShortReleaseConfig:
+    LSw 1, Lamp_Childroom
+    LSw 2, Lamp_ChildroomBra1
+    LSw 3, Lamp_ChildroomBra2
+    LSw 4, Lamp_StairsBra
+    LSw 5, Lamp_CabinetSens
+    LOn 5, Lamp_Cabinet
+    .db 0xFF, 0xFF
+
+ConfigORG  Org_LongPressConfig
+LongPressConfig:
+    LSw 1, Lamp_ChildroomMirrorSens
+    LOn 1, Lamp_ChildroomMirror
+    LSw 2, Lamp_Childroom
+    LSw 3, Lamp_Childroom
+    LSw 4, Lamp_Hall1
+    LSw 5, Lamp_CabinetLight
+    .db 0xFF, 0xFF
+
+ConfigORG  Org_LongReleaseConfig
+LongReleaseConfig:
+    .db 0xFF, 0xFF
+
+
+.endif
+;--------------------------------------------------------------------------------------
+;--------------------------------------------------------------------------------------
+;--------------------------------------------------------------------------------------
+;--------------------------------------------------------------------------------------
+;--------------------------------------------------------------------------------------
+;--------------------------------------------------------------------------------------
+.if ConfigId == 100 ; debug
+;ConfigORG  Org_RelayToLamp
+RelayToLamp:
+    .db Relay0, 0
+    .db Relay1, 1
+    .db Relay2, 2
+    .db Relay3, 3
+    .db Relay4, 4
+    .db Relay5, 5
+    .db Relay6, 6
+    .db Relay7, 7
+    .db 0xFF, 0xFF
+
+;ConfigORG Org_ShortPressConfig
+ShortPressConfig:
+    LSw 0, 0
+    LSw 1, 1
+    LSw 2, 2
+    LSw 3, 3
+    LSw 4, 4
+    LSw 5, 5
+    LSw 6, 6
+    LSw 7, 7
+    .db 0xFF, 0xFF
+
+ConfigORG  Org_ShortReleaseConfig
+ShortReleaseConfig:
+    .db 0xFF, 0xFF
+
+
+ConfigORG  Org_LongPressConfig
+LongPressConfig:
+    .db 0xFF, 0xFF
+
+ConfigORG  Org_LongReleaseConfig
+LongReleaseConfig:
+    .db 0xFF, 0xFF
+
+
+.endif
+
+.if UseRadio == 1
+.equ RadioData_Len = 32
+.equ RadioData_RepeatCount = 16
+RadioData_ProjectorScreenDown:
+    .db 255, 255, 243, 77, 36, 219, 105, 54, 210, 109, 166, 219, 105, 166, 146, 73, 36, 154, 73, 36, 146, 105, 36, 218, 105, 182, 155, 0, 0, 0, 0, 0
+
+RadioData_ProjectorScreenUp:
+    .db 255, 255, 243, 77, 36, 219, 105, 54, 210, 109, 166, 219, 105, 166, 146, 73, 36, 154, 73, 36, 146, 73, 52, 218, 77, 38, 155, 0, 0, 0, 0, 0
+
+RadioData_ProjectorScreenStop:
+    .db 255, 255, 243, 77, 36, 219, 105, 54, 210, 109, 166, 219, 105, 166, 146, 73, 36, 154, 73, 36, 146, 77, 36, 218, 77, 182, 155, 0, 0, 0, 0, 0
+.endif

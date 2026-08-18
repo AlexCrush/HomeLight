@@ -1,0 +1,96 @@
+.equ FREQ_MHZ = 8
+
+.equ RS485_BaudRate = 57600
+
+.equ RS485_UBRR  = 8 ;  (FREQ_MHZ * 1000000 / (16*RS485_BaudRate)) - 1
+
+;------------------------------------------------------------------------
+.equ IOBASE = 32
+;------------------------------------------------------------------------
+
+.equ UseEE = 0
+
+.equ InputCount = 8
+
+.equ Pin_Led         = PinB
+.equ PORT_Led        = PortB
+.equ DD_Led          = DDRB
+.equ BIT_Led         = 4
+
+.if UseRadio == 1
+.equ PIN_Radio       = PinD
+.equ PORT_Radio      = PortD
+.equ DD_Radio        = DDRD
+.equ BIT_Radio       = 3
+.endif
+
+.equ Port_RS485TX    = PortD
+.equ DD_RS485TX      = DDRD
+.equ BIT_RS485TX     = 1
+
+.equ Port_RS485RX    = PortD
+.equ DD_RS485RX      = DDRD
+.equ BIT_RS485RX     = 0
+
+.equ Port_RS485DIR   = PortD    ; 1 = out, 0 = input
+.equ DD_RS485DIR     = DDRD
+.equ BIT_RS485DIR    = 6
+
+.equ Port_SerData    = PortB
+.equ DD_SerData      = DDRB
+.equ BIT_SerData     = 6
+
+.equ Port_SerClock   = PortB
+.equ DD_SerClock     = DDRB
+.equ BIT_SerClock    = 7
+
+.equ Port_SerStore   = PortB
+.equ DD_SerStore     = DDRB
+.equ BIT_SerStore    = 3
+
+
+;---------------------------------------------------------------------
+
+
+.if 0
+
+avrdude -c usbasp -p t4313 -B 20
+avrdude -c usbasp -p t4313 -U efuse:w:0xFF:m hfuse:w:0x9F:m -U lfuse:w:0xE4:m     -B 20
+
+
+;---------------------------------------------------------------------
+;Fuses: (E:FF  H:9F, L:E4)
+E
+bit def our
+  7  1  1
+  6  1  1
+  5  1  1
+  4  1  1
+  3  1  1
+  2  1  1
+  1  1  1
+  0  1  1 SELFPRGEN  Enables SPM instruction
+
+H
+bit def our
+  7  1  1    DWEN Enables debugWIRE
+  6  1  0    EESAVE Preserves EEPROM memory during Chip Erase operation
+  5  0  0    SPIEN Enables serial programming and downloading of data to device
+  4  1  1    WDTON Sets watchdog timer permanently on
+  3  1  1    BODLEVEL2
+  2  1  1    BODLEVEL1 Sets BOD trigger level
+  1  1  1    BODLEVEL0
+  0  1  1    RSTDISBL Disables external reset
+
+L
+bit def our
+  7  0  1    CKDIV8 Divide clock by 8
+  6  1  1    CKOUT Clock Output
+  5  1  1    SUT1   Select start-up time
+  4  0  0    SUT0   Select start-up time
+  3  0  0    CKSEL3  Select Clock source
+  2  0  1    CKSEL2
+  1  1  0    CKSEL1
+  0  0  0    CKSEL0
+
+.endif

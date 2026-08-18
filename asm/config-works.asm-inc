@@ -1,0 +1,13 @@
+Config_ReadByte_FromZPlus:
+.if UseEE == 1
+;     out EEARH,xH  Not for tiny2313!
+     out EEARL,zL
+     sbi EECR,EERE
+     in tmp,EEDR
+     adiw zL, 1
+     ret
+.else
+     lpm tmp, Z+
+     ret
+.endif
+

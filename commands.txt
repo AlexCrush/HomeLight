@@ -1,0 +1,7 @@
+./gavrasm main.asm -e -a
+
+avrdude -c usbasp -p t4313 -U flash:w:main.hex:i 
+
+При первой прошивке:
+avrdude -c usbasp -p t4313 -U efuse:w:0xff:m -U hfuse:w:0x9f:m -U lfuse:w:0xe4:m     -B 20
+                          

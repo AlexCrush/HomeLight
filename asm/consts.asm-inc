@@ -1,0 +1,34 @@
+.def tmp           = r16
+.def tmp1          = r17
+.def tmp2          = r18
+.def tmp3          = r19
+
+.equ LampCount     = 64
+
+.if (LampCount & (LampCount-1)) != 0 ; must be power of two!
+.error "bad lamp count"
+.endif
+
+.equ LampBytes     = LampCount / 8
+
+
+.equ ShortPress = 5 ; 0.1 sec
+.equ LongPress = 50  ; 1 sec
+
+.equ LampAction_OffAll      = 0 ; no args
+.equ LampAction_Off         = 1 ; arg0 - LampNo
+.equ LampAction_On          = 2 ; arg0 - LampNo
+.equ LampAction_Switch      = 3 ; arg0 - LampNo
+.equ LampAction_CopyFrom    = 4 ; arg0 = LampNo, arg1 = Source LampNo
+.equ LampAction_SetOffTimer = 5 ; arg0 = LampNo, arg1 = Ticks
+.equ LampAction_Custom      = 6 ; arg0, arg1 = progmemaddr to call
+
+.equ MaxOffTimers = 4
+.equ OffTimersBytes = MaxOffTimers * 2
+
+.equ LampOffSubtimerMax = 50 ; 1 sec
+
+.equ ConfigId_Min = 0 ; 0 - computer
+.equ ConfigId_Max = 6
+
+
