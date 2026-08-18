@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -117,18 +118,23 @@ func connectLostHandler(client mqtt.Client, err error) {
 }
 
 func main() {
+	cfg := lighter.DefaultConfig()
+	cfg.RegisterFlags(flag.CommandLine)
+	flag.Parse()
+	cfg.ApplyEnv()
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	for ctx.Err() == nil {
-		if err := run(ctx); err != nil && ctx.Err() == nil {
+		if err := run(ctx, cfg); err != nil && ctx.Err() == nil {
 			log.Printf("Error: %s.", err)
 		}
 	}
 }
 
-func run(ctx context.Context) error {
-	log.Printf("homelight mqtt: starting")
+func run(ctx context.Context, cfg lighter.Config) error {
+	log.Printf("homelight mqtt: starting (ring-protocol=%v, serial=%s)", cfg.RingProtocol, cfg.SerialPort)
 	lampPublishCh := make(chan lampStateUpdate, 64)
 	devicePublishCh := make(chan deviceAvailabilityUpdate, 64)
 
@@ -150,7 +156,7 @@ func run(ctx context.Context) error {
 		}
 	}
 
-	lampController = lighter.NewController(ctx, onLampChange, onDeviceAvailabilityChange)
+	lampController = lighter.NewController(cfg, ctx, onLampChange, onDeviceAvailabilityChange)
 
 	publisherDone := make(chan struct{})
 	opts := mqtt.NewClientOptions()

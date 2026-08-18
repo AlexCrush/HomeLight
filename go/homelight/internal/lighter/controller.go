@@ -4,18 +4,20 @@ import (
 	"context"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/tarm/serial"
 )
 
 type Controller struct {
+	cfg Config
 	ctx context.Context
 
 	onLampStateChange          OnLampStateChange
 	onDeviceAvailabilityChange OnDeviceAvailabilityChange
 
-	changesCh      chan lampChange
-	deviceTracker  *DeviceTracker
+	changesCh     chan lampChange
+	deviceTracker *DeviceTracker
 
 	stateMu  sync.RWMutex
 	curState *LampState
@@ -29,11 +31,13 @@ type lampChange struct {
 type OnLampStateChange func(lampID int, on bool)
 
 func NewController(
+	cfg Config,
 	ctx context.Context,
 	onLampStateChange OnLampStateChange,
 	onDeviceAvailabilityChange OnDeviceAvailabilityChange,
 ) *Controller {
 	c := &Controller{
+		cfg:                        cfg,
 		ctx:                        ctx,
 		onLampStateChange:          onLampStateChange,
 		onDeviceAvailabilityChange: onDeviceAvailabilityChange,
@@ -44,7 +48,7 @@ func NewController(
 }
 
 func (c *Controller) Run() error {
-	port, err := OpenPort()
+	port, err := OpenPort(c.cfg)
 	if err != nil {
 		return err
 	}
@@ -59,6 +63,10 @@ func (c *Controller) Run() error {
 	go func() {
 		defer wg.Done()
 		defer func() { _ = port.Close() }()
+		if c.cfg.RingProtocol {
+			c.runRingWorker(port)
+			return
+		}
 		c.runWorker(port)
 	}()
 
@@ -90,10 +98,41 @@ func (c *Controller) runWorker(port *serial.Port) {
 			continue
 		}
 		prevState := c.getCurState()
-		newState := l.lampState.Clone()
+		newState := l.session.cloneState()
 		c.setCurState(newState)
 		c.compareAndNotifyChanges(prevState, newState)
 		pending = make(LampChanges)
+	}
+}
+
+func (c *Controller) runRingWorker(port *serial.Port) {
+	ring := NewRing(port, computerDeviceID, c.deviceTracker.See)
+	pending := make(LampChanges)
+	ticker := time.NewTicker(ringTick)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case <-ticker.C:
+			c.drainChanges(pending)
+			ring.SetChanges(pending)
+			prevState := c.getCurState()
+			if err := ring.RunStep(c.ctx); err != nil {
+				if c.ctx.Err() != nil {
+					return
+				}
+				log.Printf("Error while ring step: %s", err)
+				continue
+			}
+			newState := ring.LampState()
+			c.setCurState(newState)
+			c.compareAndNotifyChanges(prevState, newState)
+			if len(pending) > 0 && ring.ChangesApplied() {
+				pending = make(LampChanges)
+			}
+		}
 	}
 }
 
