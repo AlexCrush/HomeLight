@@ -1,0 +1,21 @@
+# Local binaries / generated outputs
+gavrasm
+asm/gavrasm
+asm/main.lst
+
+# IDE local files
+.idea/
+**/.idea/
+*.pro.user*
+
+# Large local docs/artifacts
+*.pdf
+Gerber*.zip
+
+# Vendored / local modules and side projects
+vendor/
+go/homelight/vendor/
+python/
+modbus/
+zont_mqtt/
+tools/
