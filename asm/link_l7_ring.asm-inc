@@ -1,6 +1,11 @@
 ; Ring token protocol (see README "План изменения протокола")
-; Packet: 0xAB, TargetId, LampStateKnown, LampState[LampBytes], CRC
-; No 0xCD reply — token moves when the next device sends its own 0xAB.
+; Packet: 0xAC, TargetId, LampStateKnown, LampState[LampBytes], CRC
+; No 0xCD reply — token moves when the next device sends its own 0xAC.
+; 0xAB is the old fixed-master frame: drain and treat as bus busy, never take the token.
+; Old slaves wait for 0xAB and ignore 0xAC, so mixed bus is safe for a staged flash.
+
+.equ RingDir = 0xAC
+.equ LegacyDir = 0xAB
 
 .equ RING_STATE_LISTEN = 0
 .equ RING_STATE_MASTER = 1
@@ -151,7 +156,7 @@ LinkRing_ReleaseToken:
     sts LinkRingSilenceTicks, tmp
     ret
 
-; heard 0xAB not addressed to us
+; heard 0xAC not addressed to us
 LinkRing_OnForeignPacket:
     rcall LinkRing_MarkBusActivity
     lds tmp1, LinkRingState
@@ -162,7 +167,7 @@ LinkRing_OnForeignPacket_Done:
     ret
 
 LinkRing_DoMasterSend:
-    ldi tmp, 0xAB
+    ldi tmp, RingDir
     rcall L2_SendFirstByte
     lds tmp, LinkRingTargetId
     rcall L2_SendNotFirstByte
@@ -193,23 +198,23 @@ LinkRing_RunMaster:
 LinkRing_RunMaster_Done:
     ret
 
-; first byte 0xAB already in tmp
-LinkRing_HandleAbPacket:
+; first byte RingDir already in tmp
+LinkRing_HandleAcPacket:
     rcall L2_RecvNotFirstByte
-    brne LinkRing_HandleAbPacket_Exit
+    brne LinkRing_HandleAcPacket_Exit
     mov tmp3, tmp
 
     cpi tmp3, ConfigId
-    breq LinkRing_HandleAbPacket_ForUs
+    breq LinkRing_HandleAcPacket_ForUs
 
     rcall LinkRing_RecvPayload
-    brne LinkRing_HandleAbPacket_Exit
+    brne LinkRing_HandleAcPacket_Exit
     rcall LinkRing_OnForeignPacket
-    rjmp LinkRing_HandleAbPacket_Exit
+    rjmp LinkRing_HandleAcPacket_Exit
 
-LinkRing_HandleAbPacket_ForUs:
+LinkRing_HandleAcPacket_ForUs:
     rcall LinkRing_RecvPayload
-    brne LinkRing_HandleAbPacket_Exit
+    brne LinkRing_HandleAcPacket_Exit
 
     rcall LinkRing_MarkBusActivity
     cli
@@ -220,7 +225,17 @@ LinkRing_HandleAbPacket_ForUs:
     sts LinkRingState, tmp
     rcall LinkRing_GetNextFromSelf
     sts LinkRingTargetId, tmp
-LinkRing_HandleAbPacket_Exit:
+LinkRing_HandleAcPacket_Exit:
+    ret
+
+; Old master/slave frame. Keep L2 in sync, do not join the old poll as a slave.
+LinkRing_HandleLegacyAb:
+    rcall L2_RecvNotFirstByte
+    brne LinkRing_HandleLegacyAb_Exit
+    rcall LinkRing_RecvPayload
+    brne LinkRing_HandleLegacyAb_Exit
+    rcall LinkRing_OnForeignPacket
+LinkRing_HandleLegacyAb_Exit:
     ret
 
 LinkLoop:
@@ -229,9 +244,14 @@ LinkLoop:
 
     rcall L2_RecvFirstByte
     brne LinkRing_NoPacket
-    cpi tmp, 0xAB
+    cpi tmp, RingDir
+    breq LinkRing_GotAc
+    cpi tmp, LegacyDir
     brne LinkRing_NoPacket
-    rcall LinkRing_HandleAbPacket
+    rcall LinkRing_HandleLegacyAb
+    rjmp LinkRing_AfterRecv
+LinkRing_GotAc:
+    rcall LinkRing_HandleAcPacket
     rjmp LinkRing_AfterRecv
 
 LinkRing_NoPacket:
