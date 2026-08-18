@@ -20,6 +20,9 @@ const (
 	ringForwardWaitTicks     = 3
 	ringBootstrapKnownAfter  = 4 * time.Second
 	ringRecvWindow           = 5 * time.Millisecond
+
+	dirLegacy = 0xAB
+	dirRing   = 0xAC
 )
 
 type ringState int
@@ -199,7 +202,15 @@ func (r *Ring) releaseToken() {
 }
 
 func (r *Ring) handlePacket(packet []byte) {
-	if packet[posDir] != 0xAB {
+	switch packet[posDir] {
+	case dirLegacy:
+		r.markBusActivity()
+		if r.state == ringWaitForward {
+			r.releaseToken()
+		}
+		return
+	case dirRing:
+	default:
 		return
 	}
 	target := int(packet[posDevId])
@@ -229,7 +240,7 @@ func (r *Ring) handleForUs(packet []byte) {
 }
 
 func (r *Ring) sendMaster() error {
-	work, err := buildPacket(0xAB, r.targetID, r.session.lampStateKnown, r.session.lampState)
+	work, err := buildPacket(dirRing, r.targetID, r.session.lampStateKnown, r.session.lampState)
 	if err != nil {
 		return err
 	}
@@ -249,7 +260,7 @@ func (r *Ring) sendMaster() error {
 	if err := writePacket(r.port, work); err != nil {
 		return err
 	}
-	log.Printf("Ring: sent 0xAB to %d", r.targetID)
+	log.Printf("Ring: sent 0xAC to %d", r.targetID)
 	r.state = ringWaitForward
 	r.forwardTicks = ringForwardWaitTicks
 	return nil
