@@ -111,6 +111,8 @@ LED: флаг `Communicated` + toggle `PINB` каждые 8 тиков.
 
 **Реализация:** `UseRingProtocol = 1` в `main.asm`, код в `link_l7_ring.asm-inc`. При `0` — прежние `link_l7_master` / `link_l7_slave`. Общий merge состояния — `link_l7_common.asm-inc`.
 
+Go-сервис (`go/homelight`): флаг `-ring-protocol` или `HOMELIGHT_RING_PROTOCOL=1`, порт — `-serial` / `HOMELIGHT_SERIAL`.
+
 ## Радио (котельная)
 
 Виртуальные лампы:

@@ -1,6 +1,7 @@
 package lighter
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -99,11 +100,9 @@ type Lighter struct {
 	useful  int
 	replied bool
 
-	changes          LampChanges
-	lampStateInitial *LampState
-	lampState        LampState
-	lampStateKnown   bool
-	onDeviceSeen     func(devId int)
+	changes      LampChanges
+	session      lampSession
+	onDeviceSeen func(devId int)
 }
 
 func (l *Lighter) communicate() error {
@@ -250,51 +249,22 @@ func writeLampState(data []byte, state LampState) bool {
 }
 
 func (l *Lighter) reply(data []byte) error {
-	incomingKnown := data[posLampStateKnown] == 0x01
-	wasKnown := l.lampStateKnown
-	if incomingKnown {
-		l.lampStateKnown = true
-	}
+	l.session.absorbIncoming(data)
 	data[posDir] = 0xCD
-
-	changed := false
-	if incomingKnown || !wasKnown {
-		lampState := parseLampState(data)
-		l.lampState = lampState
-		if l.lampStateInitial == nil {
-			l.lampStateInitial = &lampState
-		}
-	} else {
-		// Master restarted / forgot lamps — restore from our known state.
-		if writeLampState(data, l.lampState) {
-			changed = true
-		}
-	}
-
-	if l.changes != nil && l.lampStateInitial != nil {
-		for lamp, action := range l.changes {
-			if changeLamp(data, *l.lampStateInitial, lamp, action) {
-				changed = true
-			}
-		}
-	}
-	if l.lampStateKnown {
+	changed := l.session.applyChanges(data, l.changes)
+	if l.session.lampStateKnown {
 		data[posLampStateKnown] = 0x01
 	} else {
 		data[posLampStateKnown] = 0x00
 	}
+	l.session.syncFromPacket(data)
 	c := NewCRC()
 	c.PushBytes(data[0 : len(data)-2])
 	expVal := c.Value()
 	data[posCRCH] = byte((expVal / 0x100) & 0xFF)
 	data[posCRCL] = byte((expVal) & 0xFF)
-	eData := widenData(data)
-	n, err := l.port.Write(eData)
-	if err != nil {
-		return fmt.Errorf("write error: %s", err)
-	}
-	if n != len(eData) {
-		return fmt.Errorf("written %d instead of %d", n, len(eData))
+	if err := writePacket(l.port, data); err != nil {
+		return fmt.Errorf("write error: %w", err)
 	}
 	if changed {
 		log.Printf("Replied, but some changes happened, need retry")
@@ -305,10 +275,9 @@ func (l *Lighter) reply(data []byte) error {
 	return nil
 }
 
-func OpenPort() (*serial.Port, error) {
+func OpenPort(cfg Config) (*serial.Port, error) {
 	return serial.OpenPort(&serial.Config{
-		//Name:        "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A50285BI-if00-port0",
-		Name:        "/dev/ttyRS485-1", // Wirenboard
+		Name:        cfg.SerialPort,
 		Baud:        57600,
 		Parity:      serial.ParityNone,
 		StopBits:    serial.Stop2,
@@ -325,16 +294,34 @@ func Communicate(port *serial.Port, lch LampChanges) (*LampState, error) {
 	if err := l.communicate(); err != nil {
 		return nil, err
 	}
-	return &l.lampState, nil
+	return l.session.cloneState(), nil
 }
 
-func ControlLampsOnce(lch LampChanges) (*LampState, error) {
-	port, err := OpenPort()
+func ControlLampsOnce(cfg Config, lch LampChanges) (*LampState, error) {
+	port, err := OpenPort(cfg)
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
 		_ = port.Close()
 	}()
+	if cfg.RingProtocol {
+		return controlLampsOnceRing(port, lch)
+	}
 	return Communicate(port, lch)
+}
+
+func controlLampsOnceRing(port *serial.Port, lch LampChanges) (*LampState, error) {
+	ring := NewRing(port, computerDeviceID, nil)
+	ring.SetChanges(lch)
+	deadline := time.Now().Add(communicateTimeout)
+	for time.Now().Before(deadline) {
+		if err := ring.RunStep(context.Background()); err != nil {
+			return nil, err
+		}
+		if ring.ChangesApplied() || len(lch) == 0 {
+			return ring.LampState(), nil
+		}
+	}
+	return nil, fmt.Errorf("ring communication failed: timeout")
 }
