@@ -11,6 +11,9 @@
 ;------------------------------------------------------------------------
 .equ ConfigId_Master = 4
 
+; 0 = fixed master (ConfigId_Master) + slaves
+; 1 = ring token protocol (README: "План изменения протокола")
+.equ UseRingProtocol = 0
 
 .equ ConfigId = 1 ; Котельная
 ;.equ ConfigId = 2 ; Кладовка
@@ -115,6 +118,10 @@ _RESET:
     sts Uptime, tmp
     sts Communicated, tmp
 
+.if UseRingProtocol == 1
+    rcall LinkRing_Init
+.endif
+
 .if UseRadio == 1
     rcall Radio_Init
 .endif
@@ -183,6 +190,10 @@ SkipLampOffTimer:
     rcall Radio_ProcessInputs
 .endif
 
+.if UseRingProtocol == 1
+    rcall LinkRing_OnTick
+.endif
+
     pop tmp3
     pop tmp2
     pop tmp1
@@ -208,10 +219,14 @@ SkipLampOffTimer:
 .include "config-works.asm-inc"
 .include "link_l2.asm-inc"
 
+.if UseRingProtocol == 1
+.include "link_l7_ring.asm-inc"
+.else
 .if ConfigId == ConfigId_Master
 .include "link_l7_master.asm-inc"
 .else
 .include "link_l7_slave.asm-inc"
+.endif
 .endif
 
 .if UseRadio == 1

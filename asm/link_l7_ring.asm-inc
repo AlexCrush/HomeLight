@@ -1,0 +1,245 @@
+; Ring token protocol (see README "План изменения протокола")
+; Packet: 0xAB, TargetId, LampStateKnown, LampState[LampBytes], CRC
+; No 0xCD reply — token moves when the next device sends its own 0xAB.
+
+.equ RING_STATE_LISTEN = 0
+.equ RING_STATE_MASTER = 1
+.equ RING_STATE_WAIT_FORWARD = 2
+
+.equ RingSilenceBaseTicks = 15       ; 300 ms @ 50 Hz
+.equ RingSilencePerIdTicks = 3       ; ~60 ms per ConfigId step
+.equ RingSilenceThreshold = RingSilenceBaseTicks + RingSilencePerIdTicks * ConfigId
+.equ RingForwardWaitTicks = 3        ; ~60 ms (target 50 ms)
+
+LinkRing_Init:
+    clr tmp
+    sts LinkRingState, tmp
+    sts LinkRingSilenceTicks, tmp
+    sts LinkRingForwardTicks, tmp
+    sts LinkRingBusActivity, tmp
+    sts LinkRingTargetId, tmp
+    ret
+
+; tmp = device id -> tmp = next id (ConfigId_Min..ConfigId_Max-1, wrap)
+LinkRing_GetNextId:
+    push tmp1
+    mov tmp1, tmp
+    inc tmp1
+    cpi tmp1, ConfigId_Max
+    brlo LinkRing_GetNextId_Done
+    ldi tmp1, ConfigId_Min
+LinkRing_GetNextId_Done:
+    mov tmp, tmp1
+    pop tmp1
+    ret
+
+LinkRing_GetNextFromSelf:
+    ldi tmp, ConfigId
+    rjmp LinkRing_GetNextId
+
+; skip self when hunting for a live successor
+LinkRing_AdvanceTarget:
+LinkRing_AdvanceTarget_Loop:
+    lds tmp, LinkRingTargetId
+    rcall LinkRing_GetNextId
+    sts LinkRingTargetId, tmp
+    cpi tmp, ConfigId
+    breq LinkRing_AdvanceTarget_Loop
+    ret
+
+LinkRing_MarkBusActivity:
+    ser tmp
+    sts LinkRingBusActivity, tmp
+    sts Communicated, tmp
+    clr tmp
+    sts LinkRingSilenceTicks, tmp
+    ret
+
+; consume LampStateKnown + LampState + CRC; Z=ok
+LinkRing_RecvPayload:
+    rcall L2_RecvNotFirstByte
+    brne LinkRing_RecvPayload_Fail
+    sts LampStateKnownExt, tmp
+
+    LDIRamAddrZ LampStateExt
+    ldi tmp1, LampBytes
+LinkRing_RecvPayload_Loop:
+    rcall L2_RecvNotFirstByte
+    brne LinkRing_RecvPayload_Fail
+    st Z+, tmp
+    dec tmp1
+    brne LinkRing_RecvPayload_Loop
+
+    rcall L2_RecvCRC
+    ret
+
+LinkRing_RecvPayload_Fail:
+    clz
+    ret
+
+LinkRing_OnTick:
+    lds tmp, LinkRingBusActivity
+    tst tmp
+    breq LinkRing_OnTick_Silence
+    clr tmp
+    sts LinkRingBusActivity, tmp
+    rjmp LinkRing_OnTick_Forward
+
+LinkRing_OnTick_Silence:
+    lds tmp1, LinkRingState
+    cpi tmp1, RING_STATE_LISTEN
+    brne LinkRing_OnTick_Forward
+    lds tmp, LinkRingSilenceTicks
+    inc tmp
+    sts LinkRingSilenceTicks, tmp
+
+LinkRing_OnTick_Forward:
+    lds tmp1, LinkRingState
+    cpi tmp1, RING_STATE_WAIT_FORWARD
+    brne LinkRing_OnTick_Done
+    lds tmp, LinkRingForwardTicks
+    tst tmp
+    breq LinkRing_OnTick_Done
+    dec tmp
+    sts LinkRingForwardTicks, tmp
+LinkRing_OnTick_Done:
+    ret
+
+LinkRing_CheckElection:
+    lds tmp1, LinkRingState
+    cpi tmp1, RING_STATE_LISTEN
+    brne LinkRing_CheckElection_Done
+    lds tmp, LinkRingSilenceTicks
+    cpi tmp, RingSilenceThreshold
+    brlo LinkRing_CheckElection_Done
+    ldi tmp, RING_STATE_MASTER
+    sts LinkRingState, tmp
+    rcall LinkRing_GetNextFromSelf
+    sts LinkRingTargetId, tmp
+LinkRing_CheckElection_Done:
+    ret
+
+LinkRing_CheckForwardTimeout:
+    lds tmp1, LinkRingState
+    cpi tmp1, RING_STATE_WAIT_FORWARD
+    brne LinkRing_CheckForwardTimeout_Done
+    lds tmp, LinkRingForwardTicks
+    tst tmp
+    brne LinkRing_CheckForwardTimeout_Done
+    rcall LinkRing_AdvanceTarget
+    ldi tmp, RING_STATE_MASTER
+    sts LinkRingState, tmp
+LinkRing_CheckForwardTimeout_Done:
+    ret
+
+LinkRing_CheckBootstrapKnown:
+    lds tmp, LampStateKnown
+    tst tmp
+    brne LinkRing_CheckBootstrapKnown_Done
+    lds tmp, Uptime
+    cpi tmp, 200
+    brcs LinkRing_CheckBootstrapKnown_Done
+    ldi tmp, 1
+    sts LampStateKnown, tmp
+LinkRing_CheckBootstrapKnown_Done:
+    ret
+
+LinkRing_ReleaseToken:
+    ldi tmp, RING_STATE_LISTEN
+    sts LinkRingState, tmp
+    clr tmp
+    sts LinkRingSilenceTicks, tmp
+    ret
+
+; heard 0xAB not addressed to us
+LinkRing_OnForeignPacket:
+    rcall LinkRing_MarkBusActivity
+    lds tmp1, LinkRingState
+    cpi tmp1, RING_STATE_WAIT_FORWARD
+    brne LinkRing_OnForeignPacket_Done
+    rcall LinkRing_ReleaseToken
+LinkRing_OnForeignPacket_Done:
+    ret
+
+LinkRing_DoMasterSend:
+    ldi tmp, 0xAB
+    rcall L2_SendFirstByte
+    lds tmp, LinkRingTargetId
+    rcall L2_SendNotFirstByte
+    lds tmp, LampStateKnown
+    rcall L2_SendNotFirstByte
+
+    LDIRamAddrZ LampState
+    ldi tmp1, LampBytes
+LinkRing_DoMasterSend_Loop:
+    ld tmp, Z+
+    rcall L2_SendNotFirstByte
+    dec tmp1
+    brne LinkRing_DoMasterSend_Loop
+
+    rcall L2_SendCRC
+
+    ldi tmp, RING_STATE_WAIT_FORWARD
+    sts LinkRingState, tmp
+    ldi tmp, RingForwardWaitTicks
+    sts LinkRingForwardTicks, tmp
+    ret
+
+LinkRing_RunMaster:
+    lds tmp1, LinkRingState
+    cpi tmp1, RING_STATE_MASTER
+    brne LinkRing_RunMaster_Done
+    rcall LinkRing_DoMasterSend
+LinkRing_RunMaster_Done:
+    ret
+
+; first byte 0xAB already in tmp
+LinkRing_HandleAbPacket:
+    rcall L2_RecvNotFirstByte
+    brne LinkRing_HandleAbPacket_Exit
+    mov tmp3, tmp
+
+    cpi tmp3, ConfigId
+    breq LinkRing_HandleAbPacket_ForUs
+
+    rcall LinkRing_RecvPayload
+    brne LinkRing_HandleAbPacket_Exit
+    rcall LinkRing_OnForeignPacket
+    rjmp LinkRing_HandleAbPacket_Exit
+
+LinkRing_HandleAbPacket_ForUs:
+    rcall LinkRing_RecvPayload
+    brne LinkRing_HandleAbPacket_Exit
+
+    rcall LinkRing_MarkBusActivity
+    cli
+    rcall Link_ProcessSlaveData
+    sei
+
+    ldi tmp, RING_STATE_MASTER
+    sts LinkRingState, tmp
+    rcall LinkRing_GetNextFromSelf
+    sts LinkRingTargetId, tmp
+LinkRing_HandleAbPacket_Exit:
+    ret
+
+LinkLoop:
+    sei
+    rcall LinkRing_CheckBootstrapKnown
+
+    rcall L2_RecvFirstByte
+    brne LinkRing_NoPacket
+    cpi tmp, 0xAB
+    brne LinkRing_NoPacket
+    rcall LinkRing_HandleAbPacket
+    rjmp LinkRing_AfterRecv
+
+LinkRing_NoPacket:
+    rcall LinkRing_CheckElection
+    rcall LinkRing_CheckForwardTimeout
+
+LinkRing_AfterRecv:
+    rcall LinkRing_RunMaster
+    rjmp LinkLoop
+
+.include "link_l7_common.asm-inc"
