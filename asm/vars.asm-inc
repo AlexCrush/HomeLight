@@ -58,3 +58,16 @@ RadioSendLampId:   ; какая лампа вызвала посылку
     .byte 1
 RadioSendRepeatsLeft:
     .byte 1
+
+.if UseRingProtocol == 1
+LinkRingState:
+    .byte 1
+LinkRingSilenceTicks:
+    .byte 1
+LinkRingForwardTicks:
+    .byte 1
+LinkRingBusActivity:
+    .byte 1
+LinkRingTargetId:
+    .byte 1
+.endif

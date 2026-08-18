@@ -73,19 +73,7 @@ LinkLoop_SendLampBytes:
 
     rjmp LinkLoop
 
-;==========================================================================
-Link_ProcessSlaveData:
-    lds tmp, LampStateKnown
-    lds tmp1, LampStateKnownExt
-    cp tmp1, tmp
-    brcs Link_ProcessSlaveData_SkipLampDataUse; LampStateKnownExt < LampStateKnown
-    sts LampStateKnown, tmp1
-    LDIRamAddrZ LampStateExt
-    LDIRamAddrY LampState
-    rcall Lamp_CopyZToY
-Link_ProcessSlaveData_SkipLampDataUse:
-    rjmp Lamp_ReapplyOnOff
-;==========================================================================
+.include "link_l7_common.asm-inc"
 
 
 

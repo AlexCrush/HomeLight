@@ -13,7 +13,7 @@ avrdude -c usbasp -p t4313 -U flash:w:main.hex:i -B 30
 
 Фьюзы: `L:E4 H:9F E:FF` (внутренний RC 8 МГц, без CKDIV8).
 
-Конфиг платы выбирается `ConfigId` в `main.asm`. Меняется константа — пересобирается hex.
+Конфиг платы — `ConfigId` в `main.asm`. Протокол шины — `UseRingProtocol` (`0` = старый фиксированный мастер, `1` = кольцо с токеном, см. ниже).
 
 ## Железо
 
@@ -109,6 +109,8 @@ LED: флаг `Communicated` + toggle `PINB` каждые 8 тиков.
 
 Числа 300/50 мс — ориентир, не закон.
 
+**Реализация:** `UseRingProtocol = 1` в `main.asm`, код в `link_l7_ring.asm-inc`. При `0` — прежние `link_l7_master` / `link_l7_slave`. Общий merge состояния — `link_l7_common.asm-inc`.
+
 ## Радио (котельная)
 
 Виртуальные лампы:
@@ -159,7 +161,9 @@ LED: флаг `Communicated` + toggle `PINB` каждые 8 тиков.
 | `lamp.asm-inc` | битовая карта ламп, маски, таймеры |
 | `relay.asm-inc` | сдвиговый регистр → реле |
 | `link_l2.asm-inc` | нибблы и CRC |
-| `link_l7_master.asm-inc` / `link_l7_slave.asm-inc` | обмен стейтом |
+| `link_l7_master.asm-inc` / `link_l7_slave.asm-inc` | обмен стейтом (старый протокол) |
+| `link_l7_ring.asm-inc` | кольцо с токеном (`UseRingProtocol = 1`) |
+| `link_l7_common.asm-inc` | общий merge состояния |
 | `radio.asm-inc` | OOK пульт экрана |
 | `delays.asm-inc` | задержки |
 | `macroses.asm-inc` | адреса flash/RAM |
