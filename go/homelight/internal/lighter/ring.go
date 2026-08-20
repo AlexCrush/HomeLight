@@ -81,7 +81,7 @@ func silenceThreshold(deviceID int) int {
 
 func nextDeviceID(id int) int {
 	id++
-	if id >= configIDMax {
+	if id > configIDMax {
 		return configIDMin
 	}
 	return id

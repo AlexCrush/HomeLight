@@ -25,12 +25,12 @@ LinkRing_Init:
     sts LinkRingTargetId, tmp
     ret
 
-; tmp = device id -> tmp = next id (ConfigId_Min..ConfigId_Max-1, wrap)
+; tmp = device id -> tmp = next id (ConfigId_Min..ConfigId_Max inclusive, wrap)
 LinkRing_GetNextId:
     push tmp1
     mov tmp1, tmp
     inc tmp1
-    cpi tmp1, ConfigId_Max
+    cpi tmp1, ConfigId_Max + 1
     brlo LinkRing_GetNextId_Done
     ldi tmp1, ConfigId_Min
 LinkRing_GetNextId_Done:

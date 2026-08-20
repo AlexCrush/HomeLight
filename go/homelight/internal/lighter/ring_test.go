@@ -3,11 +3,11 @@ package lighter
 import "testing"
 
 func TestNextDeviceIDWraps(t *testing.T) {
-	if got := nextDeviceID(4); got != 5 {
-		t.Fatalf("next after 4 = %d, want 5", got)
+	if got := nextDeviceID(5); got != 6 {
+		t.Fatalf("next after 5 = %d, want 6", got)
 	}
-	if got := nextDeviceID(5); got != 0 {
-		t.Fatalf("next after 5 = %d, want 0", got)
+	if got := nextDeviceID(6); got != 0 {
+		t.Fatalf("next after 6 = %d, want 0", got)
 	}
 }
 
